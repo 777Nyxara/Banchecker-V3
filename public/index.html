@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Banchecker</title>
+    <link rel="icon" type="image/png" href="/icon.png">
+    <link rel="manifest" href="/manifest.json">
+    <!-- Neuer Font: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #ff1a1a;
+            --text-color: #ffffff;
+            --bg-color: #050505;
+            /* Dunkler, transparenter Blur für alle Panels */
+            --panel-bg: rgba(15, 15, 15, 0.75); 
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --accent-glow: rgba(255, 26, 26, 0.15); /* Leichter Glow */
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.05);
+            --panel-blur: 15px;
+            --unban-color: #32d74b;
+        }
+        :root.ios-mode {
+            --primary-color: #8a2be2;
+            --panel-bg: rgba(20, 15, 30, 0.75);
+            --panel-border: rgba(138, 43, 226, 0.3);
+            --accent-glow: rgba(138, 43, 226, 0.15);
+        }
+        :root.owner-mode {
+            --primary-color: #ffd700;
+            --panel-bg: rgba(20, 18, 5, 0.85);
+            --panel-border: rgba(255, 215, 0, 0.3);
+            --accent-glow: rgba(255, 215, 0, 0.15);
+            --text-color: #fff8dc;
+            --bg-color: #0a0800;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; } /* Neuer Font überall */
+        body, html { height: 100%; width: 100%; background-color: var(--bg-color); color: var(--text-color); overflow-x: hidden; display: flex; justify-content: center; }
+
+        #start-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #050505; z-index: 9999; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 80px 20px 60px 20px; transition: opacity 0.5s ease, visibility 0.5s; }
+        #start-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+        .welcome-text { font-size: 1.4rem; font-weight: 600; color: #fff; text-align: center; letter-spacing: 1px; }
+        .start-bottom { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 320px; }
+        .start-by { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-bottom: 15px; letter-spacing: 1px; }
+        .agree-btn { width: 100%; padding: 14px; background: transparent; border: 1px solid var(--primary-color); border-radius: 30px; color: var(--primary-color); font-size: 0.9rem; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
+        .agree-btn:hover { background: rgba(255,255,255,0.05); box-shadow: 0 0 15px var(--accent-glow); }
+
+        #bg-img { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; opacity: 0.4; display: none; filter: none !important; }
+        .overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: radial-gradient(circle, transparent 20%, rgba(0,0,0,0.85) 100%); z-index: 2; pointer-events: none; }
+
+        .app-container { width: 100%; max-width: 420px; min-height: 100vh; padding: 40px 20px 20px 20px; display: flex; flex-direction: column; position: relative; z-index: 10; }
+        .header { text-align: center; font-size: 1.1rem; font-weight: 600; letter-spacing: 1px; margin-bottom: 35px; position: relative; color: var(--text-color); z-index: 20; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        /* Grüner Punkt entfernt */
+        .dots { position: absolute; right: 0; top: 0; font-size: 1.6rem; cursor: pointer; padding: 0 10px; color: var(--text-color); transition: color 0.2s; font-weight: bold; }
+        .dots:hover { color: var(--primary-color); }
+
+        .top-panel { border: 1px solid var(--panel-border); border-radius: 12px; display: flex; text-align: center; margin-bottom: 10px; background: var(--panel-bg); backdrop-filter: blur(var(--panel-blur)); -webkit-backdrop-filter: blur(var(--panel-blur)); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        .top-panel > div { flex: 1; padding: 14px; cursor: pointer; transition: all 0.2s; color: var(--text-color); font-weight: 500; font-size: 0.95rem; }
+        .top-panel > div:hover { background: rgba(255,255,255,0.05); }
+        .border-right { border-right: 1px solid var(--panel-border); }
+        .check-btn-area:hover { text-shadow: 0 0 8px var(--primary-color); }
+
+        .input-wrapper { margin-bottom: 25px; position: relative; }
+        .input-panel { border: 1px solid var(--panel-border); border-radius: 12px; display: flex; align-items: center; padding: 12px 15px; background: var(--panel-bg); backdrop-filter: blur(var(--panel-blur)); -webkit-backdrop-filter: blur(var(--panel-blur)); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        .input-panel span { color: var(--text-color); margin-right: 10px; font-weight: bold; font-size: 1.1rem; }
+        input[type="text"], input[type="password"], input[type="number"] { background: transparent; border: none; color: var(--text-color); font-size: 1.05rem; outline: none; letter-spacing: 1px; width: 100%; font-family: 'Inter', sans-serif; }
+        #country-code { width: 45px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 10px; margin-right: 10px; text-align: center; }
+        #phone-number { flex: 1; }
+
+        .progress-bar-container { width: 82%; height: 3px; background: rgba(255,255,255,0.1); margin: 6px auto 10px auto; border-radius: 3px; overflow: hidden; position: relative; }
+        .progress-bar { height: 100%; width: 40%; background: var(--primary-color); position: absolute; top: 0; left: 0; box-shadow: 0 0 10px var(--primary-color); animation: scanLine 2s infinite alternate ease-in-out; }
+        @keyframes scanLine { 0% { left: 0%; width: 25%; } 50% { width: 50%; } 100% { left: 75%; width: 25%; } }
+        .copyright { text-align: center; font-size: 0.55rem; color: rgba(255,255,255,0.4); margin-bottom: 25px; letter-spacing: 1.5px; }
+
+        #loading-wrapper { display: none; text-align: center; margin-bottom: 12px; }
+        #loading-icon { width: 50px; height: 50px; display: none; margin: 0 auto 10px auto; border-radius: 50%; object-fit: cover; }
+        #loading-text { color: var(--primary-color); font-weight: 500; font-family: 'Inter', monospace; letter-spacing: 2px; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        #error-message { color: #ff4d4d; text-align: center; margin-bottom: 12px; display: none; font-size: 0.9rem; }
+
+        /* ANDROID RESULT - Dunkler Blur Style */
+        .android-result { display: none; position: relative; border: 1px solid var(--panel-border); border-radius: 16px; padding: 25px 20px 20px 20px; background: var(--panel-bg); backdrop-filter: blur(var(--panel-blur)); -webkit-backdrop-filter: blur(var(--panel-blur)); box-shadow: 0 0 30px var(--accent-glow), inset 0 0 20px rgba(0,0,0,0.5); overflow: hidden; }
+        .android-result.active { display: block; animation: resultPopIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes resultPopIn { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+        .android-result .result-number { font-size: 1.2rem; font-weight: bold; margin-bottom: 12px; color: var(--text-color); }
+        .android-result .result-message { font-size: 1.05rem; margin-bottom: 8px; font-weight: 500; }
+        .android-result .result-message.banned { color: var(--text-color); }
+        .android-result .result-message.unban { color: var(--unban-color); }
+        .android-result .result-email { font-size: 0.95rem; margin-bottom: 20px; color: rgba(255,255,255,0.7); }
+        .android-result .result-actions { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+        .android-result .result-actions span { cursor: pointer; letter-spacing: 1px; transition: color 0.2s; color: var(--primary-color); font-weight: 600; }
+        .atom-decoration { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 120px; height: 120px; opacity: 0.1; pointer-events: none; }
+        .atom-ring { position: absolute; border: 1.5px solid var(--primary-color); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .atom-ring:nth-child(1) { width: 100px; height: 40px; animation: atomSpin1 3s linear infinite; }
+        .atom-ring:nth-child(2) { width: 100px; height: 40px; animation: atomSpin2 3s linear infinite; }
+        .atom-ring:nth-child(3) { width: 100px; height: 40px; animation: atomSpin3 3s linear infinite; }
+        .atom-core { position: absolute; width: 16px; height: 16px; background: var(--primary-color); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 15px var(--primary-color); }
+        @keyframes atomSpin1 { 0% { transform: translate(-50%,-50%) rotateX(70deg) rotateZ(0deg); } 100% { transform: translate(-50%,-50%) rotateX(70deg) rotateZ(360deg); } }
+        @keyframes atomSpin2 { 0% { transform: translate(-50%,-50%) rotateX(70deg) rotateY(60deg) rotateZ(0deg); } 100% { transform: translate(-50%,-50%) rotateX(70deg) rotateY(60deg) rotateZ(360deg); } }
+        @keyframes atomSpin3 { 0% { transform: translate(-50%,-50%) rotateX(70deg) rotateY(120deg) rotateZ(0deg); } 100% { transform: translate(-50%,-50%) rotateX(70deg) rotateY(120deg) rotateZ(360deg); } }
+
+        /* iOS RESULT - Dunkler Blur Style */
+        .ios-result-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 4000; align-items: center; justify-content: center; }
+        .ios-result-overlay.active { display: flex; }
+        .ios-result-modal { position: relative; background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; width: 300px; text-align: center; color: var(--text-color); box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 20px var(--accent-glow); border: 1px solid var(--panel-border); animation: popupSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; overflow: hidden; }
+        @keyframes popupSlideUp { 0% { opacity: 0; transform: translateY(40px) scale(0.95); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+        .ios-result-modal .modal-content { padding: 28px 20px 20px 20px; }
+        .ios-result-modal .modal-title { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+        .ios-result-modal .modal-number { font-size: 1.15rem; font-weight: bold; margin: 10px 0; }
+        .ios-result-modal .modal-banned { font-size: 1rem; font-weight: 600; margin: 12px 0; }
+        .ios-result-modal .modal-banned.banned { color: var(--text-color); }
+        .ios-result-modal .modal-banned.unban { color: var(--unban-color); }
+        .ios-result-modal .modal-support-text { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-bottom: 5px; }
+        .ios-result-modal .modal-buttons { display: flex; border-top: 1px solid var(--panel-border); }
+        .ios-result-modal .modal-buttons button { flex: 1; padding: 14px; background: none; border: none; font-size: 1rem; color: var(--primary-color); cursor: pointer; transition: background 0.2s; font-weight: 500; }
+        .ios-result-modal .modal-buttons button:active { background: rgba(255,255,255,0.1); }
+        .ios-result-modal .modal-buttons button:first-child { border-right: 1px solid var(--panel-border); }
+
+        /* OWNER RESULT - Dunkler Blur Style, Kein Bild */
+        .owner-result-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 4000; align-items: center; justify-content: center; }
+        .owner-result-overlay.active { display: flex; }
+        .owner-result-card { position: relative; width: 320px; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 20px; overflow: hidden; box-shadow: 0 0 30px var(--accent-glow); animation: ownerCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; backdrop-filter: blur(20px); }
+        @keyframes ownerCardIn { 0% { opacity: 0; transform: translateY(60px) scale(0.85); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+        .owner-card-header { background: rgba(0,0,0,0.2); padding: 18px 20px 14px; text-align: center; border-bottom: 1px solid var(--panel-border); }
+        .owner-card-crown { font-size: 2rem; margin-bottom: 4px; filter: drop-shadow(0 0 8px var(--primary-color)); animation: crownFloat 2s ease-in-out infinite; }
+        @keyframes crownFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        .owner-card-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); letter-spacing: 3px; text-transform: uppercase; }
+        .owner-card-body { padding: 30px 20px; text-align: center; }
+        /* Bild entfernt */
+        .owner-card-number { font-size: 1.2rem; font-weight: 700; color: var(--text-color); margin-bottom: 14px; letter-spacing: 1px; font-family: 'Inter', monospace; }
+        .owner-card-status { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; padding: 8px 16px; border-radius: 10px; display: inline-block; }
+        .owner-card-status.banned { background: rgba(255,50,50,0.15); color: #ff6b6b; border: 1px solid rgba(255,50,50,0.3); }
+        .owner-card-status.unban { background: rgba(50,215,75,0.15); color: var(--unban-color); border: 1px solid rgba(50,215,75,0.3); }
+        .owner-card-detail { font-size: 0.78rem; color: rgba(255,255,255,0.5); margin-top: 10px; }
+        .owner-card-footer { display: flex; border-top: 1px solid var(--panel-border); }
+        .owner-card-footer button { flex: 1; padding: 14px; background: none; border: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.2s; color: var(--primary-color); }
+        .owner-card-footer button:active { background: rgba(255,255,255,0.1); }
+        .owner-card-footer button:first-child { border-right: 1px solid var(--panel-border); }
+
+        /* Chat FAB entfernt - jetzt im Menu */
+
+        .settings-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 3000; display: none; justify-content: center; align-items: flex-end; }
+        .settings-backdrop.active { display: flex; }
+        .settings-panel { width: 100%; max-width: 420px; border-top: 1px solid var(--primary-color); border-left: 1px solid var(--primary-color); border-right: 1px solid var(--primary-color); border-top-left-radius: 18px; border-top-right-radius: 18px; padding: 22px 20px 35px 20px; background: var(--panel-bg); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); box-shadow: 0 -10px 40px rgba(0,0,0,0.8); transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.1, 0.9, 0.2, 1); max-height: 85vh; overflow-y: auto; }
+        .settings-backdrop.active .settings-panel { transform: translateY(0); }
+        .settings-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+        .settings-title { font-size: 0.9rem; color: var(--text-color); opacity: 0.9; letter-spacing: 1px; text-transform: uppercase; font-weight: bold; }
+        .close-settings { background: none; border: none; color: var(--text-color); font-size: 1.3rem; cursor: pointer; opacity: 0.8; padding: 5px; }
+        .settings-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; font-size: 0.85rem; }
+        input[type="color"] { -webkit-appearance: none; border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; padding: 0; background: transparent; }
+        input[type="color"]::-webkit-color-swatch { border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; }
+        input[type="file"] { width: 100%; padding: 6px; border: 1px dashed var(--primary-color); color: var(--text-color); border-radius: 6px; font-size: 0.75rem; cursor: pointer; margin-top: 6px; background: rgba(0,0,0,0.4); }
+        input[type="file"]::file-selector-button { background: transparent; border: 1px solid var(--primary-color); color: var(--text-color); padding: 4px 10px; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 0.75rem; }
+        select.glass-select { background: rgba(0,0,0,0.4); border: 1px solid var(--primary-color); color: var(--text-color); padding: 4px 8px; border-radius: 6px; outline: none; font-size: 0.85rem; cursor: pointer; }
+        select.glass-select option { background: #1a1a1a; color: #fff; }
+        .owner-input { width: 100%; padding: 10px; margin-bottom: 10px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: white; }
+
+        .menu-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 3200; display: none; justify-content: flex-end; align-items: flex-start; }
+        .menu-backdrop.active { display: flex; }
+        .menu-panel { position: absolute; top: 50px; right: 15px; width: 280px; background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 12px; padding: 8px 0; box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 20px var(--accent-glow); animation: menuFadeIn 0.2s ease forwards; max-height: 85vh; overflow-y: auto; }
+        @keyframes menuFadeIn { 0% { opacity: 0; transform: translateY(-10px) scale(0.95); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+        .menu-item { display: flex; align-items: center; padding: 12px 18px; cursor: pointer; transition: background 0.15s; font-size: 0.88rem; color: var(--text-color); gap: 12px; }
+        .menu-item:hover { background: rgba(255,255,255,0.08); }
+        .menu-item .menu-icon { font-size: 1.1rem; width: 24px; text-align: center; }
+        .menu-item .menu-label { flex: 1; }
+        .menu-divider { height: 1px; background: var(--panel-border); margin: 6px 0; }
+        .menu-section-title { padding: 8px 18px 4px 18px; font-size: 0.7rem; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+        .design-option { display: flex; align-items: center; padding: 10px 18px; cursor: pointer; transition: background 0.15s; font-size: 0.88rem; color: var(--text-color); gap: 12px; }
+        .design-option:hover { background: rgba(255,255,255,0.08); }
+        .design-option.active { background: rgba(255,255,255,0.05); }
+        .design-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--primary-color); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .design-radio .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary-color); display: none; }
+        .design-option.active .design-radio .dot { display: block; }
+        .design-preview { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; }
+        .design-preview.android-preview { background: linear-gradient(135deg, #1a0000, #330000); border: 1px solid #ff1a1a; }
+        .design-preview.ios-preview { background: linear-gradient(135deg, #0a001a, #1a0033); border: 1px solid #8a2be2; }
+        .design-preview.owner-preview { background: linear-gradient(135deg, #1a1500, #332a00); border: 1px solid var(--primary-color); }
+
+        /* PIN LOGIN */
+        .login-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 5000; align-items: center; justify-content: center; }
+        .login-overlay.active { display: flex; }
+        .login-modal { background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 16px; padding: 30px 25px; width: 300px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 30px var(--accent-glow); animation: popupSlideUp 0.35s ease forwards; }
+        .login-modal h3 { margin-bottom: 8px; color: var(--primary-color); font-size: 1.1rem; letter-spacing: 1px; }
+        .login-modal .pin-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.5); margin-bottom: 20px; }
+        .login-modal .pin-input { width: 100%; padding: 14px; margin-bottom: 12px; border-radius: 10px; background: rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.2); color: white; font-size: 1.5rem; text-align: center; letter-spacing: 12px; outline: none; transition: border-color 0.2s; font-weight: 700; }
+        .login-modal .pin-input:focus { border-color: var(--primary-color); }
+        .login-modal .pin-input::placeholder { letter-spacing: 2px; font-size: 0.85rem; font-weight: 400; color: rgba(255,255,255,0.3); }
+        .login-modal .login-buttons { display: flex; gap: 10px; margin-top: 10px; }
+        .login-modal .login-buttons button { flex: 1; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: all 0.2s; }
+        .login-btn-cancel { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: var(--text-color); }
+        .login-btn-submit { background: var(--primary-color); border: 1px solid var(--primary-color); color: white; }
+        .login-btn-submit:hover { box-shadow: 0 0 15px var(--accent-glow); }
+        .pin-error { color: #ff4d4d; font-size: 0.8rem; margin-top: 8px; display: none; }
+
+        .owner-dashboard { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 5000; align-items: center; justify-content: center; }
+        .owner-dashboard.active { display: flex; }
+        .owner-dashboard-content { background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 16px; padding: 20px; width: 360px; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 30px var(--accent-glow); animation: popupSlideUp 0.35s ease forwards; }
+        .owner-dashboard-content h3 { color: var(--primary-color); margin-bottom: 15px; font-size: 1rem; letter-spacing: 1px; text-align: center; }
+        .owner-tabs { display: flex; gap: 4px; margin-bottom: 15px; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 4px; }
+        .owner-tab { flex: 1; padding: 8px 4px; border-radius: 8px; border: none; background: transparent; color: rgba(255,255,255,0.5); font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; }
+        .owner-tab.active { background: var(--primary-color); color: white; box-shadow: 0 0 10px var(--accent-glow); }
+        .owner-tab-content { display: none; }
+        .owner-tab-content.active { display: block; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .stat-card { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+        .stat-card .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--primary-color); margin-bottom: 4px; }
+        .stat-card .stat-label { font-size: 0.7rem; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+        .stat-full-card { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+        .stat-full-card .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem; }
+        .stat-full-card .stat-row:last-child { border-bottom: none; }
+        .stat-full-card .stat-row .label { color: rgba(255,255,255,0.6); }
+        .stat-full-card .stat-row .value { color: var(--text-color); font-weight: 600; }
+        .report-item { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-bottom: 8px; }
+        .report-item .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .report-item .report-user { font-size: 0.82rem; font-weight: 600; color: var(--primary-color); }
+        .report-item .report-time { font-size: 0.68rem; color: rgba(255,255,255,0.4); }
+        .report-item .report-type { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; margin-bottom: 6px; }
+        .report-type.error { background: rgba(255,77,77,0.2); color: #ff6b6b; }
+        .report-type.bug { background: rgba(255,165,0,0.2); color: #ffa500; }
+        .report-type.request { background: rgba(77,166,255,0.2); color: #4da6ff; }
+        .report-item .report-text { font-size: 0.8rem; color: rgba(255,255,255,0.7); line-height: 1.4; margin-bottom: 8px; }
+        .report-item .report-actions { display: flex; gap: 6px; }
+        .report-btn { padding: 5px 10px; border-radius: 6px; border: none; font-size: 0.7rem; font-weight: 600; cursor: pointer; }
+        .report-btn.reply-btn { background: rgba(138,43,226,0.2); color: #b07aff; }
+        .report-btn.resolve-btn { background: rgba(50,215,75,0.2); color: #32d74b; }
+        .report-btn.delete-btn { background: rgba(255,77,77,0.15); color: #ff6b6b; }
+        .report-item.resolved { opacity: 0.5; }
+        .owner-chat-container { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+        .owner-chat-messages { height: 250px; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .owner-chat-msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 0.82rem; line-height: 1.4; }
+        .owner-chat-msg.user-msg { align-self: flex-start; background: rgba(255,255,255,0.08); border-bottom-left-radius: 4px; }
+        .owner-chat-msg.owner-msg { align-self: flex-end; background: rgba(138,43,226,0.2); border: 1px solid rgba(138,43,226,0.3); border-bottom-right-radius: 4px; }
+        .owner-chat-msg .msg-sender { font-size: 0.68rem; font-weight: 600; margin-bottom: 3px; color: var(--primary-color); }
+        .owner-chat-msg .msg-time { font-size: 0.6rem; color: rgba(255,255,255,0.3); margin-top: 3px; text-align: right; }
+        .owner-chat-input { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--card-border); background: rgba(0,0,0,0.2); }
+        .owner-chat-input input { flex: 1; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.15); color: white; font-size: 0.85rem; outline: none; }
+        .owner-chat-input button { padding: 10px 16px; border-radius: 8px; border: none; background: var(--primary-color); color: white; font-weight: 600; cursor: pointer; }
+        .owner-user-select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); color: var(--text-color); font-size: 0.82rem; margin-bottom: 10px; outline: none; }
+        .owner-user-select option { background: #1a1a1a; }
+        .empty-state { text-align: center; padding: 30px 15px; color: rgba(255,255,255,0.3); font-size: 0.82rem; }
+        .empty-state .empty-icon { font-size: 2rem; margin-bottom: 8px; }
+        .owner-close-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--primary-color); background: rgba(0,0,0,0.3); color: var(--text-color); font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 8px; }
+
+        .about-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 5000; align-items: center; justify-content: center; }
+        .about-overlay.active { display: flex; }
+        .about-modal { background: var(--panel-bg); backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 16px; padding: 25px; width: 320px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.7); animation: popupSlideUp 0.35s ease forwards; }
+        .about-modal h3 { color: var(--primary-color); margin-bottom: 15px; font-size: 1.05rem; }
+        .about-modal .about-section { background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; padding: 14px; margin-bottom: 12px; text-align: left; }
+        .about-modal .about-section h4 { font-size: 0.85rem; color: var(--primary-color); margin-bottom: 8px; font-weight: 600; }
+        .about-modal .about-section p { font-size: 0.8rem; color: rgba(255,255,255,0.7); margin-bottom: 4px; line-height: 1.4; }
+        .about-modal .about-section a { color: var(--primary-color); text-decoration: none; font-weight: 500; }
+        .about-modal .script-info { font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--card-border); line-height: 1.5; }
+        .about-modal .script-info .version { color: var(--primary-color); font-weight: 600; }
+        .about-close-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--primary-color); background: rgba(0,0,0,0.3); color: var(--text-color); font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 5px; }
+
+        /* CHAT PANEL - Jetzt ohne FAB, nur Overlay/Panel */
+        .chat-panel { position: fixed; bottom: 20px; right: 20px; width: 320px; height: 450px; background: var(--panel-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 14px; z-index: 3600; display: none; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.8); animation: popupSlideUp 0.3s ease forwards; }
+        .chat-header { padding: 15px; background: rgba(0,0,0,0.4); border-top-left-radius: 14px; border-top-right-radius: 14px; display: flex; justify-content: space-between; align-items: center; }
+        .chat-header .settings-title { color: var(--primary-color); }
+        .chat-close-btn { background: none; border: none; color: var(--text-color); font-size: 1.4rem; cursor: pointer; opacity: 0.8; padding: 2px 8px; border-radius: 6px; line-height: 1; }
+        .chat-close-btn:hover { background: rgba(255,255,255,0.1); opacity: 1; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        .chat-msg { background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; word-wrap: break-word; }
+        .chat-msg-admin { border: 1px solid red; background: rgba(255,0,0,0.1); }
+        .chat-name { font-weight: bold; font-size: 0.75rem; color: var(--primary-color); margin-bottom: 3px; display: flex; justify-content: space-between; }
+        .chat-name-admin { color: red; }
+        .chat-time { font-size: 0.65rem; color: rgba(255,255,255,0.4); font-weight: normal; }
+        .chat-input-area { padding: 10px; border-top: 1px solid var(--primary-color); display: flex; gap: 8px; background: rgba(0,0,0,0.2); border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
+        .chat-input-area input { flex: 1; padding: 10px; font-size: 0.9rem; border-radius: 8px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); color: white; outline: none; }
+        .chat-input-area button { background: var(--primary-color); color: white; border: none; padding: 0 18px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1rem; }
+        @media (max-width: 768px) { .chat-panel { bottom: 0; right: 0; width: 100vw; height: 80vh; border-radius: 0; border-top-left-radius: 18px; border-top-right-radius: 18px; } }
+
+        .support-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 3100; align-items: center; justify-content: center; }
+        .support-overlay.active { display: flex; }
+        .support-modal { background: var(--panel-bg); backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 16px; width: 300px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.6); animation: popupSlideUp 0.35s ease forwards; overflow: hidden; }
+        .support-modal .support-header { padding: 20px; border-bottom: 1px solid var(--panel-border); }
+        .support-modal .support-header h3 { font-size: 1rem; color: var(--primary-color); }
+        .support-modal .support-body { padding: 20px; }
+        .support-modal .support-body p { font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-bottom: 15px; }
+        .support-modal .support-btn { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 10px; border: 1px solid var(--primary-color); background: rgba(0,0,0,0.3); color: var(--text-color); font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .support-modal .support-btn:hover { background: rgba(255,255,255,0.1); }
+        .support-modal .support-close { width: 100%; padding: 12px; border: none; border-top: 1px solid var(--panel-border); background: none; color: var(--primary-color); font-size: 0.9rem; cursor: pointer; font-weight: 600; }
+
+        .layout-manager-section { background: rgba(0,0,0,0.25); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+        .layout-manager-title { font-size: 0.82rem; font-weight: 700; color: var(--primary-color); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .layout-btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+        .layout-btn { flex: 1; padding: 9px 8px; border-radius: 8px; border: 1px solid var(--card-border); background: rgba(0,0,0,0.3); color: var(--text-color); font-size: 0.78rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .layout-btn:hover { background: rgba(255,255,255,0.08); border-color: var(--primary-color); }
+        .layout-btn.primary { border-color: var(--primary-color); color: var(--primary-color); }
+        .layout-btn.danger { border-color: rgba(255,77,77,0.5); color: #ff4d4d; }
+        .layout-btn.success { border-color: rgba(50,215,75,0.5); color: #32d74b; }
+        .layout-btn.full-width { width: 100%; }
+        .layout-divider { height: 1px; background: var(--card-border); margin: 10px 0; }
+        .layout-label { font-size: 0.75rem; color: rgba(255,255,255,0.5); margin-bottom: 6px; display: block; }
+        .layout-code-input { width: 100%; padding: 9px 12px; border-radius: 8px; background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); color: var(--text-color); font-size: 0.82rem; outline: none; margin-bottom: 8px; letter-spacing: 1px; text-transform: uppercase; }
+        .layout-code-input:focus { border-color: var(--primary-color); }
+        .layout-saved-list { max-height: 150px; overflow-y: auto; margin-top: 8px; }
+        .layout-saved-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 8px; margin-bottom: 6px; font-size: 0.8rem; }
+        .layout-saved-item .item-name { flex: 1; color: var(--text-color); font-weight: 500; }
+        .layout-saved-item .item-actions { display: flex; gap: 6px; }
+        .layout-saved-item .item-btn { padding: 4px 8px; border-radius: 5px; border: none; font-size: 0.7rem; cursor: pointer; font-weight: 600; }
+        .item-btn.load-btn { background: rgba(138,43,226,0.2); color: #b07aff; }
+        .item-btn.delete-btn { background: rgba(255,77,77,0.15); color: #ff6b6b; }
+        .layout-empty-state { text-align: center; padding: 15px; color: rgba(255,255,255,0.3); font-size: 0.78rem; }
+
+        input[type="range"] { width: 100%; accent-color: var(--primary-color); height: 4px; border-radius: 2px; outline: none; }
+        .slider-row { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.82rem; }
+        .slider-row span:last-child { color: var(--primary-color); font-weight: 600; font-size: 0.78rem; }
+        .checkbox-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 0.82rem; }
+        .checkbox-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary-color); }
+
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--panel-bg); backdrop-filter: blur(15px); border: 1px solid var(--primary-color); border-radius: 12px; padding: 12px 24px; color: var(--text-color); font-size: 0.85rem; font-weight: 500; z-index: 9999; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: transform 0.3s ease; pointer-events: none; }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--primary-color); border-radius: 4px; }
+        .report-badge { position: absolute; top: -4px; right: -4px; background: #ff4d4d; color: white; font-size: 0.6rem; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+        .sound-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,0,0,0.3); border-radius: 8px; margin-bottom: 10px; cursor: pointer; }
+        .sound-toggle .sound-icon { font-size: 1.1rem; }
+        .sound-toggle .sound-label { flex: 1; font-size: 0.82rem; }
+        .sound-toggle .sound-status { font-size: 0.72rem; color: var(--primary-color); font-weight: 600; }
+        .hacker-mode-indicator { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid var(--primary-color); border-radius: 20px; padding: 4px 12px; font-size: 0.68rem; color: var(--primary-color); font-weight: 600; letter-spacing: 2px; z-index: 100; display: none; animation: hackerBlink 1s infinite; }
+        .hacker-mode-indicator.active { display: block; }
+        @keyframes hackerBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .easter-egg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 10000; display: none; align-items: center; justify-content: center; flex-direction: column; }
+        .easter-egg.active { display: flex; }
+        .easter-egg .ee-text { font-size: 2rem; font-weight: bold; color: var(--primary-color); text-align: center; margin-bottom: 20px; }
+        .easter-egg .ee-sub { font-size: 1rem; color: rgba(255,255,255,0.7); text-align: center; margin-bottom: 30px; }
+        .easter-egg .ee-close { padding: 12px 30px; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); border-radius: 25px; cursor: pointer; font-weight: 600; }
+        .history-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 5000; align-items: center; justify-content: center; }
+        .history-overlay.active { display: flex; }
+        .history-modal { background: var(--panel-bg); backdrop-filter: blur(20px); border: 1px solid var(--primary-color); border-radius: 16px; padding: 25px; width: 340px; max-height: 80vh; overflow-y: auto; animation: popupSlideUp 0.35s ease forwards; }
+        .history-modal h3 { color: var(--primary-color); margin-bottom: 15px; font-size: 1.05rem; text-align: center; }
+        .history-list { display: flex; flex-direction: column; gap: 8px; }
+        .history-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); border-radius: 10px; cursor: pointer; }
+        .history-row:hover { border-color: var(--primary-color); }
+        .history-row .h-num { font-size: 0.85rem; font-weight: 500; flex: 1; }
+        .history-row .h-status { font-size: 0.68rem; font-weight: 700; padding: 3px 10px; border-radius: 10px; }
+        .history-row .h-status.banned { background: rgba(255,77,77,0.25); color: #ff6b6b; }
+        .history-row .h-status.unban { background: rgba(50,215,75,0.25); color: #32d74b; }
+        .history-row .h-time { font-size: 0.65rem; color: rgba(255,255,255,0.35); margin-top: 3px; }
+        .history-empty { text-align: center; padding: 30px 15px; color: rgba(255,255,255,0.3); font-size: 0.85rem; }
+        .history-clear-btn { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,77,77,0.5); background: rgba(255,77,77,0.1); color: #ff6b6b; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin-top: 12px; }
+        .history-close-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--primary-color); background: rgba(0,0,0,0.3); color: var(--text-color); font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 8px; }
+    .start-logo{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(52vw,220px);height:auto;border-radius:22%;box-shadow:0 0 50px var(--accent-glow),0 0 120px rgba(255,26,26,.12);pointer-events:none}
+/* ===== v3 Zusatz: Einstellungen-Aufbau, Themen, Ergebnis-Glas, 3D ===== */
+:root{--res-blur:20px;--res-bg:rgba(15,15,15,.7)}
+.android-result,.ios-result-modal,.owner-result-card{background:var(--res-bg)!important;-webkit-backdrop-filter:blur(var(--res-blur)) saturate(1.3)!important;backdrop-filter:blur(var(--res-blur)) saturate(1.3)!important}
+.ios-result-overlay{background:rgba(0,0,0,.4)!important}.owner-result-overlay{background:rgba(0,0,0,.45)!important}
+.ios-result-modal,.owner-result-card{animation-fill-mode:none!important}
+.tilt-card{transition:transform .12s linear;will-change:transform}
+.tilt-card.rest{transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.tilt-card::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:radial-gradient(240px circle at var(--gx,50%) var(--gy,0%),rgba(255,255,255,.13),transparent 60%)}
+.top-panel,.input-panel{position:relative;overflow:hidden}
+details.acc{border:1px solid var(--panel-border);border-radius:14px;padding:0 14px;margin:0 0 10px;background:rgba(255,255,255,.03)}
+details.acc>summary{list-style:none;cursor:pointer;padding:14px 0;display:flex;align-items:center;justify-content:space-between;font-size:.9rem;font-weight:600;color:var(--text-color)}
+details.acc>summary::-webkit-details-marker{display:none}
+details.acc>summary::after{content:'+';opacity:.6;font-size:1.2rem}
+details.acc[open]>summary::after{content:'–'}
+details.acc[open]{padding-bottom:14px}
+details.acc>summary span{margin-right:8px}
+.theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.theme-btn{height:48px;border-radius:12px;border:2px solid transparent;font-size:.68rem;font-weight:600;color:#fff;text-shadow:0 1px 4px #000;cursor:pointer}
+.theme-btn.sel{border-color:#fff}
+@media (prefers-reduced-motion:reduce){.tilt-card{transition:none}}
+</style>
+<body>
+
+    <div id="start-screen">
+        <img class="start-logo" src="/icon.png" alt="">
+        <div class="welcome-text" id="welcome-display"> Welcome Back my Master 🔥</div>
+        <div class="start-bottom">
+            <div class="start-by">by Tommy</div>
+            <button class="agree-btn" onclick="startApp()">AGREE AND CONTINUE</button>
+        </div>
+    </div>
+
+    <img id="bg-img" alt="background">
+    <div class="overlay"></div>
+
+    <div class="app-container">
+        <div class="header">
+            <!-- Grüner Punkt entfernt -->
+            <span>Banchecker</span>
+            <span class="dots" onclick="toggleMenu()">&#8942;</span>
+        </div>
+        <div class="top-panel">
+            <div class="border-right" onclick="pasteFromClipboard()">Autofill</div>
+            <div class="check-btn-area" onclick="checkNumber()">Check</div>
+        </div>
+        <div class="input-wrapper">
+            <div class="input-panel">
+                <span>+</span>
+                <input type="text" id="country-code" value="49" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                <input type="text" id="phone-number" placeholder="15678332333" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+            </div>
+            <div class="progress-bar-container"><div class="progress-bar"></div></div>
+            <div class="copyright">©Made by Tommy</div>
+        </div>
+        <div id="loading-wrapper">
+            <img id="loading-icon" src="" alt="Loader">
+            <div id="loading-text">API wird abgefragt...</div>
+        </div>
+        <div id="error-message"></div>
+
+        <!-- ANDROID RESULT -->
+        <div class="android-result" id="android-result">
+            <div class="atom-decoration"><div class="atom-ring"></div><div class="atom-ring"></div><div class="atom-ring"></div><div class="atom-core"></div></div>
+            <div class="result-number" id="android-result-num"></div>
+            <div class="result-message" id="android-result-msg"></div>
+            <div class="result-email" id="android-result-email"></div>
+            <div class="result-actions">
+                <span onclick="closeResult()" id="android-exit-btn">EXIT...</span>
+                <span onclick="openSupport()" id="android-support-btn">サポート</span>
+            </div>
+        </div>
+
+        <!-- iOS RESULT -->
+        <div class="ios-result-overlay" id="ios-result-overlay">
+            <div class="ios-result-modal">
+                <div class="modal-content">
+                    <div class="modal-title" id="ios-modal-title">Deine Telefonnummer</div>
+                    <div class="modal-number" id="ios-result-num"></div>
+                    <div class="modal-banned" id="ios-result-msg"></div>
+                    <div class="modal-support-text" id="ios-support-text">Bitte kontaktiere Support für Hilfe.</div>
+                </div>
+                <div class="modal-buttons">
+                    <button onclick="closeResult()" id="ios-cancel-btn">Abbrechen</button>
+                    <button onclick="openSupport()" id="ios-ok-btn">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- OWNER RESULT -->
+        <div class="owner-result-overlay" id="owner-result-overlay">
+            <div class="owner-result-card">
+                <div class="owner-card-header">
+                    <div class="owner-card-crown">👑</div>
+                    <div class="owner-card-title">Owner Check</div>
+                </div>
+                <div class="owner-card-body">
+                    <!-- Bild entfernt -->
+                    <div class="owner-card-number" id="owner-result-num"></div>
+                    <div class="owner-card-status" id="owner-result-msg"></div>
+                    <div class="owner-card-detail" id="owner-result-detail">Owner Mode</div>
+                </div>
+                <div class="owner-card-footer">
+                    <button onclick="closeResult()" id="owner-close-btn">Schließen</button>
+                    <button onclick="openSupport()" id="owner-support-btn">Support</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hacker-mode-indicator" id="hacker-indicator">HACKER MODE</div>
+    <div class="easter-egg" id="easter-egg">
+        <div class="ee-text" id="ee-text">👑 EASTER EGG!</div>
+        <div class="ee-sub" id="ee-sub">Du hast eine spezielle Nummer gefunden!</div>
+        <button class="ee-close" onclick="closeEasterEgg()">Schließen</button>
+    </div>
+
+    <!-- Chat Panel (wird per Menu geöffnet) -->
+    <div id="chat-panel" class="chat-panel">
+        <div class="chat-header">
+            <div class="settings-title">🌍 Live-Chat</div>
+            <button class="chat-close-btn" onclick="toggleChat()">✕</button>
+        </div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Nachricht..." onkeypress="if(event.key==='Enter')sendChatMessage()">
+            <button onclick="sendChatMessage()">➤</button>
+        </div>
+    </div>
+
+    <div class="menu-backdrop" id="menu-backdrop" onclick="toggleMenu()">
+        <div class="menu-panel" onclick="event.stopPropagation()">
+            <div class="menu-section-title">Design</div>
+            <div class="design-option" id="design-android" onclick="switchDesign('android')">
+                <div class="design-radio"><div class="dot"></div></div>
+                <div class="design-preview android-preview"></div>
+                <div class="menu-label">Android</div>
+            </div>
+            <div class="design-option" id="design-ios" onclick="switchDesign('ios')">
+                <div class="design-radio"><div class="dot"></div></div>
+                <div class="design-preview ios-preview"></div>
+                <div class="menu-label">iOS</div>
+            </div>
+            <div class="design-option" id="design-owner" onclick="switchDesign('owner')">
+                <div class="design-radio"><div class="dot"></div></div>
+                <div class="design-preview owner-preview"></div>
+                <div class="menu-label">Owner</div>
+            </div>
+            <div class="menu-divider"></div>
+            <!-- Live Chat hier rein -->
+            <div class="menu-item" onclick="toggleChat(); toggleMenu();"><span class="menu-icon">💬</span><span class="menu-label">Live Chat</span></div>
+            <div class="menu-item" onclick="openSupport(); toggleMenu();"><span class="menu-icon">🆘</span><span class="menu-label">Support</span></div>
+            <div class="menu-item" onclick="openOwnerLogin(); toggleMenu();" style="position: relative;"><span class="menu-icon">👑</span><span class="menu-label">Owner Login</span><span class="report-badge" id="report-badge" style="display:none;">0</span></div>
+            <div class="menu-item" onclick="toggleSettings(true); toggleMenu();"><span class="menu-icon">⚙️</span><span class="menu-label">Einstellungen</span></div>
+            <div class="menu-item" onclick="showHistory(); toggleMenu();"><span class="menu-icon">📋</span><span class="menu-label">Verlauf</span></div>
+            <div class="menu-item" onclick="showAbout(); toggleMenu();"><span class="menu-icon">ℹ️</span><span class="menu-label">Über uns</span></div>
+        </div>
+    </div>
+
+    <div class="history-overlay" id="history-overlay" onclick="if(event.target.id==='history-overlay')closeHistory()">
+        <div class="history-modal" onclick="event.stopPropagation()">
+            <h3>📋 Letzte Checks</h3>
+            <div class="history-list" id="history-list"></div>
+            <button class="history-clear-btn" onclick="clearHistory()">Verlauf löschen</button>
+            <button class="history-close-btn" onclick="closeHistory()">Schließen</button>
+        </div>
+    </div>
+
+    <!-- PIN LOGIN -->
+    <div class="login-overlay" id="owner-login-overlay">
+        <div class="login-modal">
+            <h3>👑 Owner Zugang</h3>
+            <div class="pin-subtitle">PIN eingeben um fortzufahren</div>
+            <input type="password" id="owner-pin" class="pin-input" placeholder="••••" maxlength="4" inputmode="numeric" oninput="this.value = this.value.replace(/[^0-9]/g, '')" onkeypress="if(event.key==='Enter')verifyOwner()">
+            <div class="pin-error" id="pin-error">❌ Falsche PIN!</div>
+            <div class="login-buttons">
+                <button class="login-btn-cancel" onclick="closeOwnerLogin()">Abbrechen</button>
+                <button class="login-btn-submit" onclick="verifyOwner()">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="owner-dashboard" id="owner-dashboard">
+        <div class="owner-dashboard-content">
+            <h3>👑 Owner Dashboard</h3>
+            <div class="owner-tabs">
+                <button class="owner-tab active" onclick="switchOwnerTab('stats')">📊 Stats</button>
+                <button class="owner-tab" onclick="switchOwnerTab('reports')">🐛 Reports</button>
+                <button class="owner-tab" onclick="switchOwnerTab('chat')">💬 Chat</button>
+            </div>
+            <div class="owner-tab-content active" id="tab-stats">
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="stat-value" id="stat-users">0</div><div class="stat-label">Aktive User</div></div>
+                    <div class="stat-card"><div class="stat-value" id="stat-checks">0</div><div class="stat-label">Gesamt Checks</div></div>
+                    <div class="stat-card"><div class="stat-value" id="stat-banned">0</div><div class="stat-label">Banned</div></div>
+                    <div class="stat-card"><div class="stat-value" id="stat-unbanned">0</div><div class="stat-label">Unbanned</div></div>
+                </div>
+                <div class="stat-full-card">
+                    <div class="stat-row"><span class="label">📅 Heute</span><span class="value" id="stat-today">0</span></div>
+                    <div class="stat-row"><span class="label">📆 Woche</span><span class="value" id="stat-week">0</span></div>
+                    <div class="stat-row"><span class="label">🕐 Letzte Nummer</span><span class="value" id="stat-lastnum" style="font-size:0.72rem;">-</span></div>
+                </div>
+                <button class="layout-btn danger full-width" onclick="resetStats()" style="margin-top: 8px;">🗑️ Zurücksetzen</button>
+            </div>
+            <div class="owner-tab-content" id="tab-reports"><div id="reports-list"><div class="empty-state"><div class="empty-icon">🐛</div><div>Keine Reports</div></div></div></div>
+            <div class="owner-tab-content" id="tab-chat">
+                <select class="owner-user-select" id="owner-chat-user" onchange="loadOwnerChat()"><option value="">-- User auswählen --</option></select>
+                <div class="owner-chat-container">
+                    <div class="owner-chat-messages" id="owner-chat-messages"><div class="empty-state"><div class="empty-icon">💬</div><div>Wähle einen User</div></div></div>
+                    <div class="owner-chat-input">
+                        <input type="text" id="owner-chat-input" placeholder="Antworten..." onkeypress="if(event.key==='Enter')sendOwnerReply()">
+                        <button onclick="sendOwnerReply()">Senden</button>
+                    </div>
+                </div>
+            </div>
+            <button class="owner-close-btn" onclick="closeOwnerDashboard()">Schließen</button>
+        </div>
+    </div>
+
+    <div class="about-overlay" id="about-overlay">
+        <div class="about-modal" onclick="event.stopPropagation()">
+            <h3>ℹ️ Über uns</h3>
+            
+            <div class="about-section"><h4>🟣 Owner: Tommy</h4><p>📞 +49 15679 579999</p><p>✈️ Telegram: <a href="https://t.me/sklaveneintreiber" target="_blank">@sklaveneintreiber</a></p></div>
+            <div class="script-info"><p><span class="version">Banchecker</span></p><p>Version 3.0.0</p><p>Developed by Tommy</p><p style="margin-top:8px;font-size:0.68rem;">© 2026 All rights reserved.</p></div>
+            <button class="about-close-btn" onclick="closeAbout()">Schließen</button>
+        </div>
+    </div>
+
+    <div class="support-overlay" id="support-overlay" onclick="if(event.target.id==='support-overlay')closeSupport()">
+        <div class="support-modal" onclick="event.stopPropagation()">
+            <div class="support-header"><h3>💬 Support</h3></div>
+            <div class="support-body">
+                <p>Wo möchtest du uns kontaktieren?</p>
+                <button class="support-btn" onclick="window.open('https://t.me/sklaveneintreiber','_blank')">✈️ Telegram - Tommy</button>
+                <button class="support-btn" onclick="window.open('https://wa.me/4915679579999','_blank')">📞 WhatsApp - Tommy</button>
+                <div style="margin-top:15px;border-top:1px solid var(--panel-border);padding-top:12px;">
+                    <p style="font-size:0.78rem;margin-bottom:8px;">Oder melde einen Fehler:</p>
+                    <button class="support-btn" onclick="openReportModal('error')" style="border-color:#ff4d4d;color:#ff6b6b;">🐛 Fehler melden</button>
+                    <button class="support-btn" onclick="openReportModal('bug')" style="border-color:#ffa500;color:#ffa500;">⚠️ Bug melden</button>
+                    <button class="support-btn" onclick="openReportModal('request')" style="border-color:#4da6ff;color:#4da6ff;">💡 Feature Request</button>
+                </div>
+            </div>
+            <button class="support-close" onclick="closeSupport()">Schließen</button>
+        </div>
+    </div>
+
+    <div class="login-overlay" id="report-overlay">
+        <div class="login-modal" style="width:320px;">
+            <h3 id="report-modal-title">🐛 Fehler melden</h3>
+            <input type="text" id="report-name" class="owner-input" placeholder="Dein Name (optional)">
+            <textarea id="report-text" class="owner-input" placeholder="Beschreibe das Problem..." rows="4" style="resize:vertical;min-height:80px;font-family:inherit;"></textarea>
+            <div class="login-buttons">
+                <button class="login-btn-cancel" onclick="closeReportModal()">Abbrechen</button>
+                <button class="login-btn-submit" onclick="submitReport()">Senden</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-backdrop" id="settings-modal" onclick="if(event.target.id==='settings-modal')toggleSettings(false)">
+        <div class="settings-panel" onclick="event.stopPropagation()">
+            <div class="settings-header"><div class="settings-title">⚙️ Einstellungen</div><button class="close-settings" onclick="toggleSettings(false)">✕</button></div>
+            
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🎨</span> Themen</div>
+                <div class="theme-grid" id="theme-grid"></div>
+            </div>
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🔍</span> Ergebnis-Karte (Nummer &amp; Support)</div>
+                <div class="layout-label" style="margin-bottom:10px">Hier wird die Nummer angezeigt – durchsichtig und verschwommen einstellbar.</div>
+                <div class="slider-row"><span>Blur-Effekt</span><span id="res-blur-val">20px</span></div>
+                <input type="range" id="res-blur-slider" min="0" max="50" value="20" style="width:100%;margin-bottom:12px" oninput="updatePanelStyle()">
+                <div class="slider-row"><span>Sichtbarkeit (niedrig = durchsichtig)</span><span id="res-alpha-val">70%</span></div>
+                <input type="range" id="res-alpha-slider" min="0" max="100" value="70" style="width:100%" oninput="updatePanelStyle()">
+            </div>
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🧊</span> 3D-Effekt</div>
+                <div class="checkbox-row"><span>3D-Neigung aktiv</span><input type="checkbox" id="tilt-toggle" onchange="saveTilt()"></div>
+                <div class="slider-row" style="margin-top:10px"><span>Stärke</span><span id="tilt-val">10°</span></div>
+                <input type="range" id="tilt-max" min="2" max="25" value="10" style="width:100%" oninput="saveTilt()">
+            </div>
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🎨</span> Layout Manager</div>
+                <div class="layout-btn-row"><input type="text" id="layout-name-input" class="layout-code-input" placeholder="Layout Name..." style="margin-bottom:0;flex:1;"><button class="layout-btn primary" onclick="saveCurrentLayout()" style="flex:0;padding:9px 14px;white-space:nowrap;">💾 Speichern</button></div>
+                <div class="layout-divider"></div>
+                <div class="layout-label">Gespeicherte Layouts</div>
+                <div class="layout-saved-list" id="layout-saved-list"><div class="layout-empty-state">Noch keine Layouts</div></div>
+                <div class="layout-divider"></div>
+                <div class="layout-label">Layout teilen (Exportieren)</div>
+                <div class="layout-btn-row"><button class="layout-btn success full-width" onclick="exportLayout()">📤 Layout-Code generieren</button></div>
+                <div class="layout-divider"></div>
+                <div class="layout-label">Layout importieren</div>
+                <input type="text" id="layout-import-code" class="layout-code-input" placeholder="Code eingeben (z.B. TOMMY-A3K7)">
+                <div class="layout-btn-row"><button class="layout-btn primary full-width" onclick="importLayout()">📥 Layout laden</button></div>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🎚️</span> Panel Design</div>
+                <div class="slider-row"><span>Blur-Effekt</span><span id="blur-val">15px</span></div>
+                <input type="range" id="blur-slider" min="0" max="30" value="15" style="width: 100%; margin-bottom: 12px;" oninput="updatePanelStyle()">
+                <div class="slider-row"><span>Sichtbarkeit</span><span id="alpha-val">75%</span></div>
+                <input type="range" id="alpha-slider" min="0" max="100" value="75" style="width: 100%;" oninput="updatePanelStyle()">
+                <button class="layout-btn full-width" style="margin-top: 12px;" onclick="resetPanelStyle()">🔄 Standard wiederherstellen</button>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>⏳</span> Lade-Media anpassen</div>
+                <input type="text" id="custom-load-text" class="owner-input" placeholder="Eigener Ladetext..." onchange="saveLoaderSettings()" style="margin-bottom: 8px;">
+                <div class="layout-label">GIF oder Bild hochladen:</div>
+                <input type="file" accept="image/*" onchange="handleLoaderUpload(this)" style="margin-bottom: 10px;">
+                <div class="checkbox-row"><span>Bild rotieren lassen?</span><input type="checkbox" id="loader-rotate" onchange="saveLoaderSettings()"></div>
+                <div class="slider-row" style="margin-top: 10px;"><span>Rotations-Speed</span><span id="speed-val">5</span></div>
+                <input type="range" id="loader-speed" min="1" max="10" value="5" style="width: 100%;" oninput="saveLoaderSettings()">
+                <button class="layout-btn danger full-width" style="margin-top: 10px;" onclick="deleteLoaderImg()">🗑️ Ladebild entfernen</button>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>✉️</span> Unban E-Mail Generator</div>
+                <div class="layout-btn-row" style="margin-bottom: 10px;">
+                    <select id="unban-template" class="glass-select" style="width: 100%;">
+                        <option value="1">Standard (Unschuldig)</option>
+                        <option value="2">Gehackt / Gestohlen</option>
+                        <option value="3">Business Account</option>
+                    </select>
+                </div>
+                <button class="layout-btn success full-width" onclick="generateUnbanEmail()">📧 E-Mail App öffnen</button>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🌐</span> Sprache / Language</div>
+                <div class="layout-btn-row">
+                    <select id="lang-select" class="glass-select" style="width: 100%;" onchange="changeLanguage(this.value)">
+                        <option value="de">Deutsch</option>
+                        <option value="en">English</option>
+                        <option value="es">Español</option>
+                        <option value="ru">Русский</option>
+                        <option value="ar">العربية</option>
+                        <option value="ja">日本語</option>
+                        <option value="it">Italiano</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>📱</span> Design Modus</div>
+                <div class="layout-btn-row">
+                    <button class="layout-btn" id="settings-btn-android" onclick="switchDesign('android')">🤖 Android</button>
+                    <button class="layout-btn" id="settings-btn-ios" onclick="switchDesign('ios')">🍎 iOS</button>
+                    <button class="layout-btn" id="settings-btn-owner" onclick="switchDesign('owner')">👑 Owner</button>
+                </div>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🎨</span> Farben & Texte</div>
+                <div class="settings-row"><span>Akzentfarbe</span><input type="color" id="neon-color-picker" value="#ff1a1a" onchange="changeThemeColor(this.value)"></div>
+                <div class="settings-row"><span>Textfarbe</span><input type="color" id="text-color-picker" value="#ffffff" onchange="changeTextColor(this.value)"></div>
+                <div class="settings-row"><span>Unban-Farbe</span><input type="color" id="unban-color-picker" value="#32d74b" onchange="changeUnbanColor(this.value)"></div>
+                <div class="layout-divider"></div>
+                <div class="layout-btn-row">
+                    <button class="layout-btn" onclick="editWelcomeText()">✏️ Welcome-Text</button>
+                    <button class="layout-btn" onclick="editBannedText()">✏️ Banned-Text</button>
+                </div>
+                <div class="layout-btn-row">
+                    <button class="layout-btn" onclick="editUnbanText()">✏️ Unban-Text</button>
+                </div>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🔊</span> Sound & Feedback</div>
+                <div class="sound-toggle" onclick="toggleSound()"><span class="sound-icon" id="sound-icon">🔊</span><span class="sound-label">Sound Effekte</span><span class="sound-status" id="sound-status">AN</span></div>
+                <div class="checkbox-row"><span>Vibration bei Ergebnis</span><input type="checkbox" id="vibration-toggle" onchange="saveVibrationSetting()"></div>
+                <div class="checkbox-row" style="margin-top: 8px;"><span>Hacker Mode (Matrix Text)</span><input type="checkbox" id="hacker-toggle" onchange="saveHackerSetting()"></div>
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>🖼️</span> Hintergrund</div>
+                <div class="layout-label">Bild oder GIF hochladen</div>
+                <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onchange="handleImageUpload(this)">
+            </div>
+
+            <div class="layout-manager-section">
+                <div class="layout-manager-title"><span>👑</span> Owner Bilder</div>
+                <div class="layout-label">Banned Bild</div>
+                <input type="file" accept="image/*" onchange="handleOwnerBannedImage(this)">
+                <div class="layout-label" style="margin-top:10px;">Unbanned Bild</div>
+                <input type="file" accept="image/*" onchange="handleOwnerUnbanImage(this)">
+                <button class="layout-btn danger full-width" style="margin-top: 10px;" onclick="deleteOwnerImages()">🗑️ Owner Bilder entfernen</button>
+            </div>
+
+            <button class="agree-btn" style="padding: 10px; margin-top: 10px;" onclick="openSupport()">💬 Support kontaktieren</button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const DEFAULT_BANNED_TEXT = "Banned by Tommy";
+        const DEFAULT_WELCOME_TEXT = " Welcome Back my Master 🔥";
+        const OWNER_PIN = "2026";
+
+        let currentDesign = localStorage.getItem('bc_design') || 'android';
+        let currentLang = localStorage.getItem('bc_lang') || 'de';
+        let soundEnabled = localStorage.getItem('bc_sound') !== 'false';
+        let vibrationEnabled = localStorage.getItem('bc_vibration') === 'true';
+        let hackerMode = localStorage.getItem('bc_hacker') === 'true';
+        let checkHistory = JSON.parse(localStorage.getItem('bc_history') || '[]');
+        let isOwnerLoggedIn = false;
+        let currentReportType = 'error';
+
+        const translations = {
+            de: { api_loading: "API wird abgefragt...", your_phone: "Deine Telefonnummer", is_unban: "ist Unban", contact_support: "Support kontaktieren", cancel: "Abbrechen", ok: "OK", exit: "EXIT...", support: "サポート", close: "Schließen", wrong_pin: "❌ Falsche PIN!", enter_pin: "PIN eingeben um fortzufahren", owner_access: "👑 Owner Zugang", login: "Login", cancel_btn: "Abbrechen", name_optional: "Dein Name (optional)", describe_problem: "Beschreibe das Problem...", error_report: "🐛 Fehler melden", bug_report: "⚠️ Bug melden", feature_request: "💡 Feature Request", where_contact: "Wo möchtest du uns kontaktieren?", or_report_error: "Oder melde einen Fehler:", last_checks: "📋 Letzte Checks", no_checks: "📭 Noch keine Checks", delete_history: "Verlauf löschen", close_btn: "Schließen", live_chat: "🌍 Live Chat", chat_name_prompt: "Chat-Name?", message_placeholder: "Nachricht...", design: "Design", settings: "Einstellungen", history: "Verlauf", about: "Über uns", owner_login: "Owner Login", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "AGREE AND CONTINUE", autofill: "Autofill", check: "Check", copyright: "©Made by Tommy", banned: "BANNED", unbanned: "UNBANNED", owner_mode: "Owner Mode", owner_check: "Owner Check", reply_placeholder: "Antworten...", select_user: "-- User auswählen --", choose_user: "💬 Wähle einen User", no_messages: "💬 Keine Nachrichten", reset_stats: "🗑️ Zurücksetzen", today: "📅 Heute", week: "📆 Woche", last_number: "🕐 Letzte Nummer", active_users: "Aktive User", total_checks: "Gesamt Checks", banned_count: "Banned", unbanned_count: "Unbanned", owner_dashboard: "👑 Owner Dashboard", stats: "📊 Stats", reports: "🐛 Reports", chat: "💬 Chat", no_reports: "Keine Reports", support_title: "💬 Support", settings_title: "⚙️ Einstellungen", layout_manager: "🎨 Layout Manager", layout_name: "Layout Name...", save: "💾 Speichern", saved_layouts: "Gespeicherte Layouts", no_layouts: "Noch keine Layouts", export: "📤 Layout-Code generieren", import: "📥 Layout laden", enter_code: "Code eingeben (z.B. TOMMY-A3K7)", design_mode: "📱 Design Modus", colors: "🎨 Farben & Texte", accent_color: "Akzentfarbe", text_color: "Textfarbe", unban_color: "Unban-Farbe", sound: "🔊 Sound & Feedback", sound_effects: "Sound Effekte", vibration: "Vibration bei Ergebnis", hacker_mode: "Hacker Mode (Matrix Text)", background: "🖼️ Hintergrund", owner_images: "👑 Owner Bilder", banned_image: "Banned Bild", unbanned_image: "Unbanned Bild", on: "AN", off: "AUS", saved: "✅ Gespeichert!", loaded: "✅ Geladen!", deleted: "🗑️ Gelöscht!", name_required: "⚠️ Name nötig!", description_required: "⚠️ Beschreibung nötig!", report_sent: "✅ Report gesendet!", new_report: "🐛 Neuer Report!", answer_sent: "✅ Antwort gesendet!", select_user_first: "⚠️ User wählen!", sent: "✅ Gesendet!", history_deleted: "Verlauf gelöscht!", stats_reset: "🗑️ Zurückgesetzt!", welcome_owner: "✅ Willkommen Owner!", pin_required: "🔒 PIN nötig!", background_saved: "✅ Hintergrund gespeichert!", banned_image_saved: "✅ Banned Bild gespeichert!", unbanned_image_saved: "✅ Unbanned Bild gespeichert!", overwrite: "Überschreiben?", confirm_delete: "Löschen?", confirm_reset: "Zurücksetzen?", confirm_clear_history: "Verlauf löschen?", panel_design: "🎚️ Panel Design", blur_effect: "Blur-Effekt", visibility: "Sichtbarkeit", reset_panel: "🔄 Standard wiederherstellen", loader_media: "⏳ Lade-Media anpassen", custom_load_text: "Eigener Ladetext...", upload_gif: "GIF oder Bild hochladen:", rotate_image: "Bild rotieren lassen?", rotation_speed: "Rotations-Speed", remove_loader: "🗑️ Ladebild entfernen", unban_email: "✉️ Unban E-Mail Generator", language: "🌐 Sprache / Language", edit_texts: "✏️ Texte bearbeiten", welcome_text: "✏️ Welcome-Text", banned_text: "✏️ Banned-Text", unban_text: "✏️ Unban-Text", contact_support_btn: "💬 Support kontaktieren", remove_owner_images: "🗑️ Owner Bilder entfernen" },
+            en: { api_loading: "Checking API...", your_phone: "Your phone number", is_unban: "is Unbanned", contact_support: "Contact Support", cancel: "Cancel", ok: "OK", exit: "EXIT...", support: "Support", close: "Close", wrong_pin: "❌ Wrong PIN!", enter_pin: "Enter PIN to continue", owner_access: "👑 Owner Access", login: "Login", cancel_btn: "Cancel", name_optional: "Your name (optional)", describe_problem: "Describe the problem...", error_report: "🐛 Report Error", bug_report: "⚠️ Report Bug", feature_request: "💡 Feature Request", where_contact: "Where do you want to contact us?", or_report_error: "Or report an error:", last_checks: "📋 Last Checks", no_checks: "📭 No checks yet", delete_history: "Delete history", close_btn: "Close", live_chat: "🌍 Live Chat", chat_name_prompt: "Chat name?", message_placeholder: "Message...", design: "Design", settings: "Settings", history: "History", about: "About", owner_login: "Owner Login", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "AGREE AND CONTINUE", autofill: "Autofill", check: "Check", copyright: "©Made by Tommy", banned: "BANNED", unbanned: "UNBANNED", owner_mode: "Owner Mode", owner_check: "Owner Check", reply_placeholder: "Reply...", select_user: "-- Select user --", choose_user: "💬 Choose a user", no_messages: "💬 No messages", reset_stats: "🗑️ Reset", today: "📅 Today", week: "📆 Week", last_number: "🕐 Last number", active_users: "Active Users", total_checks: "Total Checks", banned_count: "Banned", unbanned_count: "Unbanned", owner_dashboard: "👑 Owner Dashboard", stats: "📊 Stats", reports: "🐛 Reports", chat: "💬 Chat", no_reports: "No reports", support_title: "💬 Support", settings_title: "⚙️ Settings", layout_manager: "🎨 Layout Manager", layout_name: "Layout name...", save: "💾 Save", saved_layouts: "Saved layouts", no_layouts: "No layouts yet", export: "📤 Generate Code", import: "📥 Load Layout", enter_code: "Enter code (e.g. TOMMY-A3K7)", design_mode: "📱 Design mode", colors: "🎨 Colors & Texts", accent_color: "Accent color", text_color: "Text color", unban_color: "Unban color", sound: "🔊 Sound & Feedback", sound_effects: "Sound effects", vibration: "Vibration on result", hacker_mode: "Hacker Mode (Matrix Text)", background: "🖼️ Background", owner_images: "👑 Owner images", banned_image: "Banned image", unbanned_image: "Unbanned image", on: "ON", off: "OFF", saved: "✅ Saved!", loaded: "✅ Loaded!", deleted: "🗑️ Deleted!", name_required: "⚠️ Name required!", description_required: "⚠️ Description required!", report_sent: "✅ Report sent!", new_report: "🐛 New report!", answer_sent: "✅ Answer sent!", select_user_first: "⚠️ Select user!", sent: "✅ Sent!", history_deleted: "History deleted!", stats_reset: "🗑️ Reset!", welcome_owner: "✅ Welcome Owner!", pin_required: "🔒 PIN required!", background_saved: "✅ Background saved!", banned_image_saved: "✅ Banned image saved!", unbanned_image_saved: "✅ Unbanned image saved!", overwrite: "Overwrite?", confirm_delete: "Delete?", confirm_reset: "Reset?", confirm_clear_history: "Clear history?", panel_design: "🎚️ Panel Design", blur_effect: "Blur effect", visibility: "Visibility", reset_panel: "🔄 Restore default", loader_media: "⏳ Loader media", custom_load_text: "Custom loader text...", upload_gif: "Upload GIF or image:", rotate_image: "Rotate image?", rotation_speed: "Rotation speed", remove_loader: "🗑️ Remove loader image", unban_email: "✉️ Unban Email Generator", language: "🌐 Language", edit_texts: "✏️ Edit texts", welcome_text: "✏️ Welcome text", banned_text: "✏️ Banned text", unban_text: "✏️ Unban text", contact_support_btn: "💬 Contact support", remove_owner_images: "🗑️ Remove owner images" },
+            es: { api_loading: "Consultando API...", your_phone: "Tu número", is_unban: "no está baneado", contact_support: "Contactar Soporte", cancel: "Cancelar", ok: "OK", exit: "SALIR...", support: "Soporte", close: "Cerrar", wrong_pin: "❌ PIN incorrecto!", enter_pin: "Ingresa el PIN", owner_access: "👑 Acceso Owner", login: "Entrar", cancel_btn: "Cancelar", last_checks: "📋 Últimos checks", no_checks: "📭 Sin checks", delete_history: "Borrar historial", close_btn: "Cerrar", live_chat: "🌍 Chat en vivo", design: "Diseño", settings: "Ajustes", history: "Historial", about: "Acerca de", owner_login: "Owner Login", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "ACEPTAR Y CONTINUAR", autofill: "Autollenar", check: "Check", banned: "BANEADO", unbanned: "DESBANEADO", owner_mode: "Modo Owner", owner_check: "Owner Check", saved: "✅ Guardado!", loaded: "✅ Cargado!", deleted: "🗑️ Eliminado!" },
+            ru: { api_loading: "Проверка API...", your_phone: "Ваш номер", is_unban: "Разблокирован", contact_support: "Связаться с поддержкой", cancel: "Отмена", ok: "ОК", exit: "ВЫХОД...", support: "Поддержка", close: "Закрыть", wrong_pin: "❌ Неверный PIN!", enter_pin: "Введите PIN", owner_access: "👑 Доступ Owner", login: "Войти", cancel_btn: "Отмена", last_checks: "📋 Последние проверки", no_checks: "📭 Нет проверок", delete_history: "Очистить историю", close_btn: "Закрыть", live_chat: "🌍 Живой чат", design: "Дизайн", settings: "Настройки", history: "История", about: "О нас", owner_login: "Owner Login", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "СОГЛАСЕН", autofill: "Автозаполнение", check: "Проверить", banned: "ЗАБАНЕН", unbanned: "РАЗБАНЕН", owner_mode: "Режим Owner", owner_check: "Owner Check", saved: "✅ Сохранено!", loaded: "✅ Загружено!", deleted: "🗑️ Удалено!" },
+            ar: { api_loading: "جاري الفحص...", your_phone: "رقم هاتفك", is_unban: "غير محظور", contact_support: "اتصل بالدعم", cancel: "إلغاء", ok: "موافق", exit: "خروج...", support: "الدعم", close: "إغلاق", wrong_pin: "❌ رمز خاطئ!", enter_pin: "أدخل الرمز", owner_access: "👑 وصول المالك", login: "دخول", cancel_btn: "إلغاء", last_checks: "📋 آخر الفحوصات", no_checks: "📭 لا فحوصات", delete_history: "حذف السجل", close_btn: "إغلاق", live_chat: "🌍 دردشة مباشرة", design: "التصميم", settings: "الإعدادات", history: "السجل", about: "حول", owner_login: "دخول المالك", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "موافقة ومتابعة", autofill: "تعبئة تلقائية", check: "فحص", banned: "محظور", unbanned: "غير محظور", owner_mode: "وضع المالك", owner_check: "فحص المالك", saved: "✅ تم الحفظ!", loaded: "✅ تم التحميل!", deleted: "🗑️ تم الحذف!" },
+            ja: { api_loading: "APIを確認中...", your_phone: "電話番号", is_unban: "は制限解除されています", contact_support: "サポートに連絡", cancel: "キャンセル", ok: "OK", exit: "終了...", support: "サポート", close: "閉じる", wrong_pin: "❌ PINが間違っています!", enter_pin: "PINを入力", owner_access: "👑 オーナーアクセス", login: "ログイン", cancel_btn: "キャンセル", last_checks: "📋 最後のチェック", no_checks: "📭 チェックなし", delete_history: "履歴を削除", close_btn: "閉じる", live_chat: "🌍 ライブチャット", design: "デザイン", settings: "設定", history: "履歴", about: "について", owner_login: "オーナーログイン", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "同意して続ける", autofill: "オートフィル", check: "チェック", banned: "禁止", unbanned: "禁止解除", owner_mode: "オーナーモード", owner_check: "オーナーチェック", saved: "✅ 保存しました!", loaded: "✅ 読み込みました!", deleted: "🗑️ 削除しました!" },
+            it: { api_loading: "Controllo API...", your_phone: "Il tuo numero", is_unban: "è Sbloccato", contact_support: "Contatta Supporto", cancel: "Annulla", ok: "OK", exit: "ESCI...", support: "Supporto", close: "Chiudi", wrong_pin: "❌ PIN errato!", enter_pin: "Inserisci il PIN", owner_access: "👑 Accesso Owner", login: "Accedi", cancel_btn: "Annulla", last_checks: "📋 Ultimi check", no_checks: "📭 Nessun check", delete_history: "Cancella cronologia", close_btn: "Chiudi", live_chat: "🌍 Chat live", design: "Design", settings: "Impostazioni", history: "Cronologia", about: "Chi siamo", owner_login: "Owner Login", welcome_back: " Welcome Back my Master 🔥", by_tommy: "by Tommy", agree_continue: "ACCETTA E CONTINUA", autofill: "Autocompila", check: "Check", banned: "BANNATO", unbanned: "SBANNATO", owner_mode: "Modalità Owner", owner_check: "Owner Check", saved: "✅ Salvato!", loaded: "✅ Caricato!", deleted: "🗑️ Eliminato!" }
+        };
+
+        function t(key) {
+            return (translations[currentLang] && translations[currentLang][key]) || translations.de[key] || key;
+        }
+
+        function updateAllTexts() {
+            document.getElementById('welcome-display').innerText = t('welcome_back');
+            document.querySelector('.start-by').innerText = t('by_tommy');
+            document.querySelector('#start-screen .agree-btn').innerText = t('agree_continue');
+            document.querySelector('.border-right').innerText = t('autofill');
+            document.querySelector('.check-btn-area').innerText = t('check');
+            document.querySelector('.copyright').innerText = t('copyright');
+            document.getElementById('loading-text').innerText = t('api_loading');
+            document.getElementById('android-exit-btn').innerText = t('exit');
+            document.getElementById('android-support-btn').innerText = t('support');
+            document.getElementById('ios-modal-title').innerText = t('your_phone');
+            document.getElementById('ios-support-text').innerText = t('contact_support');
+            document.getElementById('ios-cancel-btn').innerText = t('cancel');
+            // OK Button Text wird in checkNumber() dynamisch gesetzt je nach Banned/Unbanned
+            document.getElementById('owner-close-btn').innerText = t('close');
+            document.getElementById('owner-support-btn').innerText = t('support');
+            document.getElementById('owner-result-detail').innerText = t('owner_mode');
+            document.querySelector('.owner-card-title').innerText = t('owner_check');
+            document.querySelector('.chat-header .settings-title').innerText = t('live_chat');
+            document.getElementById('chat-input').placeholder = t('message_placeholder');
+            
+            const menuLabels = document.querySelectorAll('.menu-item .menu-label');
+            if (menuLabels.length >= 6) {
+                menuLabels[0].innerText = t('live_chat'); // Neu an Position 0
+                menuLabels[1].innerText = t('support');
+                menuLabels[2].innerText = t('owner_login');
+                menuLabels[3].innerText = t('settings');
+                menuLabels[4].innerText = t('history');
+                menuLabels[5].innerText = t('about');
+            }
+            
+            document.querySelector('.history-modal h3').innerText = t('last_checks');
+            document.querySelector('.history-clear-btn').innerText = t('delete_history');
+            document.querySelector('.history-close-btn').innerText = t('close_btn');
+            document.querySelector('#owner-login-overlay h3').innerText = t('owner_access');
+            document.querySelector('.pin-subtitle').innerText = t('enter_pin');
+            document.getElementById('pin-error').innerText = t('wrong_pin');
+            
+            const loginCancelBtns = document.querySelectorAll('.login-btn-cancel');
+            const loginSubmitBtns = document.querySelectorAll('.login-btn-submit');
+            if (loginCancelBtns[0]) loginCancelBtns[0].innerText = t('cancel_btn');
+            if (loginSubmitBtns[0]) loginSubmitBtns[0].innerText = t('login');
+            
+            document.querySelector('.owner-dashboard-content h3').innerText = t('owner_dashboard');
+            const ownerTabs = document.querySelectorAll('.owner-tab');
+            if (ownerTabs.length >= 3) {
+                ownerTabs[0].innerText = t('stats');
+                ownerTabs[1].innerText = t('reports');
+                ownerTabs[2].innerText = t('chat');
+            }
+            
+            const statLabels = document.querySelectorAll('.stat-label');
+            if (statLabels.length >= 4) {
+                statLabels[0].innerText = t('active_users');
+                statLabels[1].innerText = t('total_checks');
+                statLabels[2].innerText = t('banned_count');
+                statLabels[3].innerText = t('unbanned_count');
+            }
+            
+            const statRowLabels = document.querySelectorAll('.stat-row .label');
+            if (statRowLabels.length >= 3) {
+                statRowLabels[0].innerText = t('today');
+                statRowLabels[1].innerText = t('week');
+                statRowLabels[2].innerText = t('last_number');
+            }
+            
+            document.querySelector('.owner-close-btn').innerText = t('close_btn');
+            document.querySelector('.support-modal h3').innerText = t('support_title');
+            document.querySelector('.support-body > p').innerText = t('where_contact');
+            const supportPs = document.querySelectorAll('.support-body p');
+            if (supportPs[1]) supportPs[1].innerText = t('or_report_error');
+            document.querySelector('.support-close').innerText = t('close_btn');
+            document.querySelector('.settings-title').innerText = t('settings_title');
+            document.getElementById('sound-status').innerText = soundEnabled ? t('on') : t('off');
+            document.getElementById('report-name').placeholder = t('name_optional');
+            document.getElementById('report-text').placeholder = t('describe_problem');
+            document.getElementById('owner-chat-input').placeholder = t('reply_placeholder');
+        }
+
+        function changeLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem('bc_lang', lang);
+            document.documentElement.lang = lang;
+            if (lang === 'ar') document.body.style.direction = 'rtl';
+            else document.body.style.direction = 'ltr';
+            updateAllTexts();
+            showToast("🌐 Language changed!");
+        }
+
+        function showToast(msg, d = 2500) { const el = document.getElementById('toast'); el.innerText = msg; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), d); }
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(type) {
+            if (!soundEnabled) return;
+            try {
+                const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                o.connect(g); g.connect(audioCtx.destination);
+                if (type === 'banned') { o.frequency.setValueAtTime(200, audioCtx.currentTime); o.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.3); g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3); o.start(); o.stop(audioCtx.currentTime + 0.3); }
+                else if (type === 'unban') { o.frequency.setValueAtTime(400, audioCtx.currentTime); o.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.2); g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2); o.start(); o.stop(audioCtx.currentTime + 0.2); }
+                else { o.frequency.setValueAtTime(600, audioCtx.currentTime); g.gain.setValueAtTime(0.1, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); o.start(); o.stop(audioCtx.currentTime + 0.1); }
+            } catch(e) {}
+        }
+        function vibrate(p) { if (vibrationEnabled && navigator.vibrate) navigator.vibrate(p); }
+        function toggleSound() { soundEnabled = !soundEnabled; localStorage.setItem('bc_sound', soundEnabled); document.getElementById('sound-icon').innerText = soundEnabled ? '🔊' : '🔇'; document.getElementById('sound-status').innerText = soundEnabled ? t('on') : t('off'); }
+        function saveVibrationSetting() { vibrationEnabled = document.getElementById('vibration-toggle').checked; localStorage.setItem('bc_vibration', vibrationEnabled); }
+        function saveHackerSetting() { hackerMode = document.getElementById('hacker-toggle').checked; localStorage.setItem('bc_hacker', hackerMode); document.getElementById('hacker-indicator').classList.toggle('active', hackerMode); }
+
+        function scrambleText(el, txt, dur = 800) {
+            if (!hackerMode) { el.innerHTML = txt; return; }
+            const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*', st = Date.now();
+            const iv = setInterval(() => { const p = (Date.now() - st) / dur; if (p >= 1) { el.innerHTML = txt; clearInterval(iv); return; } let r = ''; for (let i = 0; i < txt.length; i++) r += (txt[i] === ' ' || Math.random() < p) ? txt[i] : c[Math.floor(Math.random() * c.length)]; el.innerHTML = r; }, 30);
+        }
+
+        function addToHistory(n, b) { checkHistory.unshift({ number: n, banned: b, time: Date.now() }); if (checkHistory.length > 10) checkHistory = checkHistory.slice(0, 10); localStorage.setItem('bc_history', JSON.stringify(checkHistory)); }
+        function showHistory() { renderHistoryOverlay(); document.getElementById('history-overlay').classList.add('active'); }
+        function closeHistory() { document.getElementById('history-overlay').classList.remove('active'); }
+        function renderHistoryOverlay() {
+            const l = document.getElementById('history-list');
+            if (!checkHistory.length) { l.innerHTML = '<div class="history-empty">' + t('no_checks') + '</div>'; return; }
+            l.innerHTML = '';
+            checkHistory.forEach(i => { const r = document.createElement('div'); r.className = 'history-row'; r.onclick = () => { const p = i.number.replace('+','').split(' '); document.getElementById('country-code').value = p[0]; document.getElementById('phone-number').value = p.slice(1).join(''); closeHistory(); closeResult(); }; const tm = new Date(i.time).toLocaleString(currentLang==='de'?'de-DE':'en-US',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); r.innerHTML = `<div style="flex:1"><div class="h-num">${i.number}</div><div class="h-time">${tm}</div></div><span class="h-status ${i.banned?'banned':'unban'}">${i.banned?t('banned'):t('unbanned')}</span>`; l.appendChild(r); });
+        }
+        function clearHistory() { if (!confirm(t('confirm_clear_history'))) return; checkHistory = []; localStorage.setItem('bc_history','[]'); renderHistoryOverlay(); showToast(t('history_deleted')); }
+
+        function checkEasterEgg(n) {
+            const c = n.replace(/\D/g,'');
+            if (c==='15678332333'||c==='15678579999') { document.getElementById('ee-text').innerText='👑 OWNER NUMMER!'; document.getElementById('ee-sub').innerText="Tommy's Nummer!"; document.getElementById('easter-egg').classList.add('active'); return true; }
+            return false;
+        }
+        function closeEasterEgg() { document.getElementById('easter-egg').classList.remove('active'); }
+
+        let socket;
+        try {
+            socket = io();
+            socket.on('chatHistory', h => { const c = document.getElementById('chat-messages'); c.innerHTML = ''; h.forEach(m => appendMsg(m)); c.scrollTop = c.scrollHeight; });
+            socket.on('newMessage', m => { appendMsg(m); const c = document.getElementById('chat-messages'); c.scrollTop = c.scrollHeight; });
+            socket.on('newReport', () => { updateReportBadge(); showToast(t('new_report')); });
+            socket.on('ownerReply', d => { if (d.userName === document.getElementById('owner-chat-user').value) loadOwnerChat(); });
+        } catch(e) { console.log('Socket not available'); }
+
+        function toggleChat() { const p = document.getElementById('chat-panel'); if (p.style.display === 'flex') p.style.display = 'none'; else { p.style.display = 'flex'; if (!localStorage.getItem('bc_chat_name')) { const n = prompt(t('chat_name_prompt')); localStorage.setItem('bc_chat_name', n ? n.trim() : 'User'+Math.floor(Math.random()*1000)); } } }
+        function appendMsg(m) { const c = document.getElementById('chat-messages'), d = document.createElement('div'); d.className = 'chat-msg'+(m.isAdmin?' chat-msg-admin':''); d.innerHTML = `<div class="chat-name${m.isAdmin?' chat-name-admin':''}"><span>${m.name}</span><span class="chat-time">${m.time}</span></div><div>${m.text}</div>`; c.appendChild(d); }
+        function sendChatMessage() { const i = document.getElementById('chat-input'), txt = i.value.trim(); if (!txt) return; if (socket && socket.connected) socket.emit('sendMessage', { name: localStorage.getItem('bc_chat_name')||'Gast', text: txt }); i.value = ''; }
+
+        function switchDesign(design) {
+            if (design === 'owner' && !isOwnerLoggedIn) {
+                openOwnerLogin();
+                return;
+            }
+            currentDesign = design;
+            localStorage.setItem('bc_design', design);
+            const root = document.documentElement;
+            ['design-android','design-ios','design-owner'].forEach(id => document.getElementById(id).classList.remove('active'));
+            root.classList.remove('ios-mode','owner-mode');
+            document.getElementById('settings-btn-android').style.opacity = '0.5';
+            document.getElementById('settings-btn-ios').style.opacity = '0.5';
+            document.getElementById('settings-btn-owner').style.opacity = '0.5';
+
+            const savedBg = localStorage.getItem('bc_bg_image');
+            if (savedBg) { const bg = document.getElementById('bg-img'); bg.src = savedBg; bg.style.display = 'block'; }
+
+            if (design === 'ios') {
+                root.classList.add('ios-mode');
+                document.getElementById('design-ios').classList.add('active');
+                document.getElementById('settings-btn-ios').style.opacity = '1';
+                const c = localStorage.getItem('bc_neon_color') || '#8a2be2';
+                document.getElementById('neon-color-picker').value = c; changeThemeColor(c);
+            } else if (design === 'owner') {
+                root.classList.add('owner-mode');
+                document.getElementById('design-owner').classList.add('active');
+                document.getElementById('settings-btn-owner').style.opacity = '1';
+                // Owner nutzt die gewählte Akzentfarbe (nicht fest Gold)
+                const c = localStorage.getItem('bc_neon_color') || '#ff1a1a';
+                document.getElementById('neon-color-picker').value = c; changeThemeColor(c);
+            } else {
+                document.getElementById('design-android').classList.add('active');
+                document.getElementById('settings-btn-android').style.opacity = '1';
+                const c = localStorage.getItem('bc_neon_color') || '#ff1a1a';
+                document.getElementById('neon-color-picker').value = c; changeThemeColor(c);
+            }
+        }
+
+        function toggleMenu() { document.getElementById('menu-backdrop').classList.toggle('active'); }
+        function openOwnerLogin() { document.getElementById('owner-login-overlay').classList.add('active'); document.getElementById('owner-pin').value = ''; document.getElementById('pin-error').style.display = 'none'; setTimeout(() => document.getElementById('owner-pin').focus(), 100); }
+        function closeOwnerLogin() { document.getElementById('owner-login-overlay').classList.remove('active'); document.getElementById('owner-pin').value = ''; document.getElementById('pin-error').style.display = 'none'; }
+
+        function verifyOwner() {
+            const pin = document.getElementById('owner-pin').value;
+            if (pin === OWNER_PIN) {
+                closeOwnerLogin();
+                isOwnerLoggedIn = true;
+                switchDesign('owner');
+                showOwnerDashboard();
+                showToast(t('welcome_owner'));
+            } else {
+                document.getElementById('pin-error').style.display = 'block';
+                document.getElementById('owner-pin').value = '';
+                document.getElementById('owner-pin').focus();
+            }
+        }
+
+        function showOwnerDashboard() { if (!isOwnerLoggedIn) { showToast(t('pin_required')); return; } document.getElementById('owner-dashboard').classList.add('active'); updateStats(); loadReports(); loadOwnerChatUsers(); updateReportBadge(); }
+        function closeOwnerDashboard() { document.getElementById('owner-dashboard').classList.remove('active'); }
+        function switchOwnerTab(tab) { document.querySelectorAll('.owner-tab').forEach(el => el.classList.remove('active')); document.querySelectorAll('.owner-tab-content').forEach(el => el.classList.remove('active')); event.target.classList.add('active'); document.getElementById('tab-'+tab).classList.add('active'); if (tab==='stats') updateStats(); if (tab==='reports') loadReports(); if (tab==='chat') loadOwnerChatUsers(); }
+        function showAbout() { document.getElementById('about-overlay').classList.add('active'); }
+        function closeAbout() { document.getElementById('about-overlay').classList.remove('active'); }
+
+        function updateStats() {
+            const s = getStats();
+            animateValue('stat-users', 0, Math.max(0,parseInt(s.uniqueUsers)||0), 800);
+            animateValue('stat-checks', 0, Math.max(0,parseInt(s.totalChecks)||0), 800);
+            animateValue('stat-banned', 0, Math.max(0,parseInt(s.bannedCount)||0), 800);
+            animateValue('stat-unbanned', 0, Math.max(0,parseInt(s.unbannedCount)||0), 800);
+            document.getElementById('stat-today').innerText = Math.max(0,s.todayChecks||0);
+            document.getElementById('stat-week').innerText = Math.max(0,s.weekChecks||0);
+            document.getElementById('stat-lastnum').innerText = s.lastNumber||'-';
+        }
+        function animateValue(id, start, end, dur) {
+            const el = document.getElementById(id);
+            start = Math.max(0,parseInt(start)||0);
+            end = Math.max(0,parseInt(end)||0);
+            if (start===end) { el.innerText = end; return; }
+            const r = end-start, st = Date.now();
+            const step = ts => { const p = Math.min((ts-st)/dur,1); el.innerText = Math.max(0,Math.floor(start+r*p)); if (p<1) requestAnimationFrame(step); };
+            requestAnimationFrame(step);
+        }
+        function getStats() { try { return JSON.parse(localStorage.getItem('bc_stats')||'{}'); } catch(e) { return {}; } }
+        function saveStats(s) { localStorage.setItem('bc_stats', JSON.stringify(s)); }
+        function recordCheck(n, b) {
+            const s = getStats(); s.totalChecks = (s.totalChecks||0)+1;
+            const tm = new Date().toDateString();
+            if (s.lastCheckDate!==tm) { s.todayChecks=1; s.lastCheckDate=tm; } else s.todayChecks=(s.todayChecks||0)+1;
+            const ws = new Date(); ws.setDate(ws.getDate()-ws.getDay());
+            if (s.weekStartDate!==ws.toDateString()) { s.weekChecks=1; s.weekStartDate=ws.toDateString(); } else s.weekChecks=(s.weekChecks||0)+1;
+            if (b) s.bannedCount=(s.bannedCount||0)+1; else s.unbannedCount=(s.unbannedCount||0)+1;
+            s.lastNumber = n;
+            const cn = localStorage.getItem('bc_chat_name')||'Anonym';
+            if (!s.users) s.users={}; s.users[cn]=(s.users[cn]||0)+1; s.uniqueUsers=Object.keys(s.users).length;
+            if (currentDesign === 'android') { s.androidUses = (s.androidUses||0)+1; }
+            else if (currentDesign === 'ios') { s.iosUses = (s.iosUses||0)+1; }
+            else { s.ownerUses = (s.ownerUses||0)+1; }
+            saveStats(s);
+        }
+        function resetStats() { if (!confirm(t('confirm_reset'))) return; localStorage.removeItem('bc_stats'); updateStats(); showToast(t('stats_reset')); }
+
+        function getReports() { try { return JSON.parse(localStorage.getItem('bc_reports')||'[]'); } catch(e) { return []; } }
+        function saveReports(r) { localStorage.setItem('bc_reports', JSON.stringify(r)); }
+        function openReportModal(tp) { currentReportType=tp; const titles={error:t('error_report'),bug:t('bug_report'),request:t('feature_request')}; document.getElementById('report-modal-title').innerText=titles[tp]||'Report'; document.getElementById('report-overlay').classList.add('active'); }
+        function closeReportModal() { document.getElementById('report-overlay').classList.remove('active'); document.getElementById('report-name').value=''; document.getElementById('report-text').value=''; }
+        function submitReport() {
+            const n = document.getElementById('report-name').value.trim()||localStorage.getItem('bc_chat_name')||'Anonym';
+            const txt = document.getElementById('report-text').value.trim();
+            if (!txt) { showToast(t('description_required')); return; }
+            const r = getReports(); r.unshift({id:Date.now(),type:currentReportType,userName:n,text:txt,time:new Date().toLocaleString(currentLang==='de'?'de-DE':'en-US'),resolved:false,replies:[]}); saveReports(r);
+            if (socket&&socket.connected) socket.emit('newReport',r[0]);
+            closeReportModal(); closeSupport(); showToast(t('report_sent'));
+        }
+        function loadReports() {
+            const r = getReports(), l = document.getElementById('reports-list');
+            if (!r.length) { l.innerHTML='<div class="empty-state"><div class="empty-icon">🐛</div><div>'+t('no_reports')+'</div></div>'; return; }
+            l.innerHTML=''; r.forEach(rp => { const i=document.createElement('div'); i.className='report-item'+(rp.resolved?' resolved':''); const tl={error:'Fehler',bug:'Bug',request:'Request'}; const rc=rp.replies?rp.replies.length:0; i.innerHTML=`<div class="report-header"><span class="report-user">${rp.userName}</span><span class="report-time">${rp.time}</span></div><span class="report-type ${rp.type}">${tl[rp.type]||rp.type}${rp.resolved?' ✓':''}${rc>0?' ('+rc+'💬)':''}</span><div class="report-text">${rp.text}</div><div class="report-actions"><button class="report-btn reply-btn" onclick="replyToReport(${rp.id})">💬</button><button class="report-btn resolve-btn" onclick="toggleResolveReport(${rp.id})">${rp.resolved?'↩️':'✅'}</button><button class="report-btn delete-btn" onclick="deleteReport(${rp.id})">🗑️</button></div>`; l.appendChild(i); });
+        }
+        function replyToReport(id) { const r=prompt("Antwort:"); if(!r||!r.trim()) return; const rps=getReports(),rp=rps.find(x=>x.id===id); if(rp){if(!rp.replies)rp.replies=[];rp.replies.push({text:r.trim(),time:new Date().toLocaleString(currentLang==='de'?'de-DE':'en-US'),from:'Owner'});saveReports(rps);loadReports();if(socket&&socket.connected)socket.emit('ownerReply',{userName:rp.userName,text:r.trim(),reportId:rp.id});showToast(t('answer_sent'));} }
+        function toggleResolveReport(id) { const rps=getReports(),rp=rps.find(x=>x.id===id); if(rp){rp.resolved=!rp.resolved;saveReports(rps);loadReports();updateReportBadge();showToast(rp.resolved?"✅ Gelöst!":"↩️ Geöffnet!");} }
+        function deleteReport(id) { if(!confirm(t('confirm_delete'))) return; saveReports(getReports().filter(r=>r.id!==id)); loadReports(); updateReportBadge(); showToast(t('deleted')); }
+        function updateReportBadge() { const u=getReports().filter(r=>!r.resolved).length,b=document.getElementById('report-badge'); if(u>0){b.style.display='flex';b.innerText=u>9?'9+':u;}else b.style.display='none'; }
+        function loadOwnerChatUsers() { const s=getStats(),sel=document.getElementById('owner-chat-user'),ns=Object.keys(s.users||{}); getReports().forEach(r=>{if(!ns.includes(r.userName))ns.push(r.userName);}); sel.innerHTML='<option value="">'+t('select_user')+'</option>'; ns.forEach(n=>{const o=document.createElement('option');o.value=n;o.innerText=`${n} (${(s.users||{})[n]||0})`;sel.appendChild(o);}); }
+        function loadOwnerChat() { const u=document.getElementById('owner-chat-user').value,el=document.getElementById('owner-chat-messages'); if(!u){el.innerHTML='<div class="empty-state">'+t('choose_user')+'</div>';return;} const rps=getReports().filter(r=>r.userName===u); if(!rps.length){el.innerHTML='<div class="empty-state">'+t('no_messages')+'</div>';return;} el.innerHTML=''; rps.forEach(r=>{const m=document.createElement('div');m.className='owner-chat-msg user-msg';m.innerHTML=`<div class="msg-sender">${r.userName}</div><div>${r.text}</div><div class="msg-time">${r.time}</div>`;el.appendChild(m);if(r.replies)r.replies.forEach(rp=>{const o=document.createElement('div');o.className='owner-chat-msg owner-msg';o.innerHTML=`<div class="msg-sender">👑 Owner</div><div>${rp.text}</div><div class="msg-time">${rp.time}</div>`;el.appendChild(o);});}); el.scrollTop=el.scrollHeight; }
+        function sendOwnerReply() { const u=document.getElementById('owner-chat-user').value,i=document.getElementById('owner-chat-input'),txt=i.value.trim(); if(!u){showToast(t('select_user_first'));return;} if(!txt)return; const rps=getReports(),ur=rps.find(r=>r.userName===u&&!r.resolved); if(ur){if(!ur.replies)ur.replies=[];ur.replies.push({text:txt,time:new Date().toLocaleString(currentLang==='de'?'de-DE':'en-US'),from:'Owner'});saveReports(rps);if(socket&&socket.connected)socket.emit('ownerReply',{userName:u,text:txt,reportId:ur.id});} i.value='';loadOwnerChat();showToast(t('sent')); }
+
+        function openSupport() { document.getElementById('support-overlay').classList.add('active'); }
+        function closeSupport() { document.getElementById('support-overlay').classList.remove('active'); }
+        function toggleSettings(o) { const m=document.getElementById('settings-modal'); if(o){m.classList.add('active');refreshLayoutList();document.getElementById('sound-icon').innerText=soundEnabled?'🔊':'🔇';document.getElementById('sound-status').innerText=soundEnabled?t('on'):t('off');document.getElementById('vibration-toggle').checked=vibrationEnabled;document.getElementById('hacker-toggle').checked=hackerMode;document.getElementById('hacker-indicator').classList.toggle('active',hackerMode);applyLoaderSettings();}else m.classList.remove('active'); }
+        
+        function startApp() { 
+            document.getElementById('start-screen').classList.add('hidden'); 
+            setTimeout(() => { document.getElementById('start-screen').style.display = 'none'; }, 500); 
+        }
+        
+        async function pasteFromClipboard() { try{const txt=await navigator.clipboard.readText();if(txt){let c=txt.replace(/\D/g,'');const cc=document.getElementById('country-code').value;if(cc&&c.startsWith(cc))c=c.substring(cc.length);else if(c.startsWith('0'))c=c.substring(1);document.getElementById('phone-number').value=c;}}catch(e){} }
+        function changeThemeColor(h) { document.documentElement.style.setProperty('--primary-color',h); document.documentElement.style.setProperty('--panel-border',h+'80'); document.documentElement.style.setProperty('--accent-glow',h+'40'); localStorage.setItem('bc_neon_color',h); }
+        function changeTextColor(h) { document.documentElement.style.setProperty('--text-color',h); localStorage.setItem('bc_text_color',h); }
+        function changeUnbanColor(h) { document.documentElement.style.setProperty('--unban-color',h); localStorage.setItem('bc_unban_color',h); }
+
+        function updatePanelStyle() {
+            const blurVal = document.getElementById('blur-slider').value;
+            const alphaVal = document.getElementById('alpha-slider').value;
+            document.documentElement.style.setProperty('--panel-blur', blurVal + 'px');
+            document.documentElement.style.setProperty('--panel-bg', `rgba(15, 15, 15, ${alphaVal / 100})`);
+            document.getElementById('blur-val').innerText = blurVal + 'px';
+            document.getElementById('alpha-val').innerText = alphaVal + '%';
+            localStorage.setItem('bc_panel_blur', blurVal);
+            localStorage.setItem('bc_panel_alpha', alphaVal);
+        }
+        function resetPanelStyle() {
+            document.getElementById('blur-slider').value = 15;
+            document.getElementById('alpha-slider').value = 75;
+            updatePanelStyle();
+            showToast("🔄 Reset!");
+        }
+
+        function formatPhoneNumber(cc, raw) { const c=raw.replace(/\D/g,''); if(cc==='49'){if(c.startsWith('15678')||c.startsWith('1563'))return`+${cc} ${c.slice(0,5)} ${c.slice(5)}`;if(/^(15[1279]|16[023]|17[0-8])/.test(c))return`+${cc} ${c.slice(0,3)} ${c.slice(3)}`;} return`+${cc} ${c}`; }
+
+        function closeResult() {
+            document.getElementById('android-result').classList.remove('active');
+            document.getElementById('ios-result-overlay').classList.remove('active');
+            document.getElementById('owner-result-overlay').classList.remove('active');
+            document.getElementById('android-result-msg').className = 'result-message';
+            document.getElementById('ios-result-msg').className = 'modal-banned';
+            document.getElementById('owner-result-msg').className = 'owner-card-status';
+        }
+
+        async function checkNumber() {
+            const cc = document.getElementById('country-code').value, num = document.getElementById('phone-number').value;
+            if (!num.trim()) return alert("Bitte Nummer eingeben");
+            const fmt = formatPhoneNumber(cc, num);
+            closeResult();
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('loading-wrapper').style.display = 'block';
+            playSound('check');
+            if (checkEasterEgg(num)) { document.getElementById('loading-wrapper').style.display = 'none'; return; }
+            try {
+                const res = await fetch('/check', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({number:"+"+cc+" "+num}) });
+                const data = await res.json();
+                let banned = false;
+                if (data.banned===true||String(data.banned).toLowerCase()==='true') banned=true;
+                if (data.isBanned===true||String(data.isBanned).toLowerCase()==='true') banned=true;
+                if (data.data&&(data.data.banned===true||String(data.data.banned).toLowerCase()==='true')) banned=true;
+                if (data.status&&String(data.status).toLowerCase()==='banned') banned=true;
+                recordCheck(fmt, banned); addToHistory(fmt, banned);
+                document.getElementById('loading-wrapper').style.display = 'none';
+                const bt = localStorage.getItem('bc_banned_text') || DEFAULT_BANNED_TEXT;
+                const ut = localStorage.getItem('bc_unban_text') || t('is_unban');
+
+                if (banned) {
+                    playSound('banned'); vibrate([100,50,100,50,200]);
+                    
+                    // iOS Button Logic für Banned: Abbrechen + Support
+                    document.getElementById('ios-ok-btn').innerText = t('support'); document.getElementById('ios-support-text').style.display = '';
+                    document.getElementById('ios-ok-btn').onclick = openSupport;
+
+                    if (currentDesign === 'android') {
+                        document.getElementById('android-result-num').innerText = fmt;
+                        scrambleText(document.getElementById('android-result-msg'), bt);
+                        document.getElementById('android-result-msg').className = 'result-message banned';
+                        document.getElementById('android-result-email').innerText = 'support@whatsapp.com';
+                        document.getElementById('android-result').classList.add('active');
+                    } else if (currentDesign === 'ios') {
+                        document.getElementById('ios-result-num').innerText = fmt;
+                        scrambleText(document.getElementById('ios-result-msg'), bt);
+                        document.getElementById('ios-result-msg').className = 'modal-banned banned';
+                        document.getElementById('ios-result-overlay').classList.add('active');
+                    } else {
+                        document.getElementById('owner-result-num').innerText = fmt;
+                        const st = document.getElementById('owner-result-msg');
+                        st.className = 'owner-card-status banned';
+                        st.innerText = '🚫 ' + t('banned');
+                        document.getElementById('owner-result-detail').innerText = t('owner_mode');
+                        // Kein Bild mehr, nur Text
+                        document.getElementById('owner-result-overlay').classList.add('active');
+                    }
+                } else {
+                    playSound('unban'); vibrate([50,30,50]);
+
+                    // iOS Button Logic für Unbanned: Abbrechen + OK
+                    document.getElementById('ios-ok-btn').innerText = t('ok'); document.getElementById('ios-support-text').style.display = 'none';
+                    document.getElementById('ios-ok-btn').onclick = closeResult;
+
+                    if (currentDesign === 'android') {
+                        document.getElementById('android-result-num').innerText = fmt;
+                        scrambleText(document.getElementById('android-result-msg'), ut);
+                        document.getElementById('android-result-msg').className = 'result-message unban';
+                        document.getElementById('android-result-email').innerText = '';
+                        document.getElementById('android-result').classList.add('active');
+                    } else if (currentDesign === 'ios') {
+                        document.getElementById('ios-result-num').innerText = fmt;
+                        scrambleText(document.getElementById('ios-result-msg'), ut);
+                        document.getElementById('ios-result-msg').className = 'modal-banned unban';
+                        document.getElementById('ios-result-overlay').classList.add('active');
+                    } else {
+                        document.getElementById('owner-result-num').innerText = fmt;
+                        const st = document.getElementById('owner-result-msg');
+                        st.className = 'owner-card-status unban';
+                        st.innerText = '✅ ' + t('unbanned');
+                        document.getElementById('owner-result-detail').innerText = ''; // "Support kontaktieren" statt Owner Mode
+                        document.getElementById('owner-result-overlay').classList.add('active');
+                    }
+                }
+            } catch(err) {
+                document.getElementById('loading-wrapper').style.display = 'none';
+                const e = document.getElementById('error-message');
+                e.innerHTML = '<strong>⚠️ Fehler</strong><br>API nicht erreichbar<br><small style="opacity:0.6;">Bitte später erneut versuchen</small>';
+                e.style.display = 'block';
+            }
+        }
+
+        function getLayouts() { try { return JSON.parse(localStorage.getItem('bc_layouts')||'{}'); } catch(e) { return {}; } }
+        function saveLayouts(l) { localStorage.setItem('bc_layouts', JSON.stringify(l)); }
+        function saveCurrentLayout() { const n=document.getElementById('layout-name-input').value.trim(); if(!n){showToast(t('name_required'));return;} const l=getLayouts(); if(l[n]&&!confirm(t('overwrite')))return; l[n]={neon:localStorage.getItem('bc_neon_color')||'#ff1a1a',text:localStorage.getItem('bc_text_color')||'#fff',unbanColor:localStorage.getItem('bc_unban_color')||'#32d74b',design:currentDesign,blur:localStorage.getItem('bc_panel_blur')||15,alpha:localStorage.getItem('bc_panel_alpha')||75,bgData:localStorage.getItem('bc_bg_image')||'',savedAt:new Date().toISOString()}; saveLayouts(l); document.getElementById('layout-name-input').value=''; refreshLayoutList(); showToast(t('saved')); }
+        function loadLayout(n) { const l=getLayouts()[n]; if(!l)return; if(l.neon){changeThemeColor(l.neon);document.getElementById('neon-color-picker').value=l.neon;} if(l.text){changeTextColor(l.text);document.getElementById('text-color-picker').value=l.text;} if(l.unbanColor){changeUnbanColor(l.unbanColor);document.getElementById('unban-color-picker').value=l.unbanColor;} if(l.blur!==undefined){document.getElementById('blur-slider').value=l.blur;} if(l.alpha!==undefined){document.getElementById('alpha-slider').value=l.alpha;} updatePanelStyle(); if(l.design)switchDesign(l.design); if(l.bgData){try{localStorage.setItem('bc_bg_image',l.bgData);const bg=document.getElementById('bg-img');bg.src=l.bgData;bg.style.display='block';}catch(e){}} showToast(t('loaded')); }
+        function deleteLayout(n) { if(!confirm(t('confirm_delete')))return; const l=getLayouts(); delete l[n]; saveLayouts(l); refreshLayoutList(); }
+        function generateLayoutCode() { const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code = ''; for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length)); return 'TOMMY-' + code; }
+        function exportLayout() {
+            const bgData = localStorage.getItem('bc_bg_image') || '';
+            const exportData = { neon: localStorage.getItem('bc_neon_color') || '#ff1a1a', text: localStorage.getItem('bc_text_color') || '#fff', unbanColor: localStorage.getItem('bc_unban_color') || '#32d74b', design: currentDesign, blur: localStorage.getItem('bc_panel_blur') || 15, alpha: localStorage.getItem('bc_panel_alpha') || 75, bgData: bgData };
+            const code = generateLayoutCode();
+            let sharedLayouts = {};
+            try { sharedLayouts = JSON.parse(localStorage.getItem('bc_shared_layouts') || '{}'); } catch(e) {}
+            sharedLayouts[code] = { data: exportData, createdAt: new Date().toISOString(), expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000) };
+            localStorage.setItem('bc_shared_layouts', JSON.stringify(sharedLayouts));
+            navigator.clipboard.writeText(code).then(() => showToast("📋 " + code)).catch(() => prompt("Layout-Code:", code));
+        }
+        function importLayout() {
+            const codeInput = document.getElementById('layout-import-code');
+            const code = codeInput.value.trim().toUpperCase();
+            if (!code) { showToast("⚠️ Code eingeben!"); return; }
+            let sharedLayouts = {};
+            try { sharedLayouts = JSON.parse(localStorage.getItem('bc_shared_layouts') || '{}'); } catch(e) {}
+            const shared = sharedLayouts[code];
+            if (!shared) { showToast("❌ Code nicht gefunden!"); return; }
+            if (shared.expiresAt && Date.now() > shared.expiresAt) { showToast("❌ Code abgelaufen!"); return; }
+            const layout = shared.data;
+            if (layout.neon) { changeThemeColor(layout.neon); document.getElementById('neon-color-picker').value = layout.neon; }
+            if (layout.text) { changeTextColor(layout.text); document.getElementById('text-color-picker').value = layout.text; }
+            if (layout.unbanColor) { changeUnbanColor(layout.unbanColor); document.getElementById('unban-color-picker').value = layout.unbanColor; }
+            if (layout.blur !== undefined) document.getElementById('blur-slider').value = layout.blur;
+            if (layout.alpha !== undefined) document.getElementById('alpha-slider').value = layout.alpha;
+            updatePanelStyle();
+            if (layout.design) switchDesign(layout.design);
+            if (layout.bgData) { try { localStorage.setItem('bc_bg_image', layout.bgData); const bg = document.getElementById('bg-img'); bg.src = layout.bgData; bg.style.display = 'block'; } catch(e) {} }
+            codeInput.value = '';
+            showToast(t('loaded'));
+        }
+        function refreshLayoutList() { const l=getLayouts(),el=document.getElementById('layout-saved-list'),ns=Object.keys(l); if(!ns.length){el.innerHTML='<div class="layout-empty-state">'+t('no_layouts')+'</div>';return;} el.innerHTML=''; ns.forEach(n=>{const i=document.createElement('div');i.className='layout-saved-item';const d=l[n].savedAt?new Date(l[n].savedAt).toLocaleDateString(currentLang==='de'?'de-DE':'en-US'):'';const dl=l[n].design==='ios'?'🍎 iOS':l[n].design==='owner'?'👑 Owner':'🤖 Android';i.innerHTML=`<div class="item-name"><div style="font-weight:600">${n}</div><div style="font-size:0.68rem;color:rgba(255,255,255,0.4)">${d} · ${dl}</div></div><div class="item-actions"><button class="item-btn load-btn" onclick="loadLayout('${n.replace(/'/g,"\\'")}')">Laden</button><button class="item-btn delete-btn" onclick="deleteLayout('${n.replace(/'/g,"\\'")}')">✕</button></div>`;el.appendChild(i);}); }
+        
+        async function handleImageUpload(input) { const f=input.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{try{localStorage.setItem('bc_bg_image',e.target.result);}catch(e){} const bg=document.getElementById('bg-img');bg.src=e.target.result;bg.style.display='block';showToast(t('background_saved'));}; r.readAsDataURL(f); }
+        async function handleOwnerBannedImage(input) { const f=input.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{try{localStorage.setItem('bc_owner_banned_img',e.target.result);}catch(e){} showToast(t('banned_image_saved'));}; r.readAsDataURL(f); }
+        async function handleOwnerUnbanImage(input) { const f=input.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{try{localStorage.setItem('bc_owner_unban_img',e.target.result);}catch(e){} showToast(t('unbanned_image_saved'));}; r.readAsDataURL(f); }
+        function deleteOwnerImages() { localStorage.removeItem('bc_owner_banned_img'); localStorage.removeItem('bc_owner_unban_img'); showToast(t('deleted')); }
+
+        async function handleLoaderUpload(input) { const f=input.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{try{localStorage.setItem('bc_loader_img',e.target.result);}catch(e){} applyLoaderSettings(); showToast("✅ Loader gespeichert!");}; r.readAsDataURL(f); }
+        function saveLoaderSettings() {
+            const txt = document.getElementById('custom-load-text').value;
+            const rot = document.getElementById('loader-rotate').checked;
+            const spd = document.getElementById('loader-speed').value;
+            if (txt) localStorage.setItem('bc_loader_text', txt); else localStorage.removeItem('bc_loader_text');
+            localStorage.setItem('bc_loader_rotate', rot);
+            localStorage.setItem('bc_loader_speed', spd);
+            document.getElementById('speed-val').innerText = spd;
+            applyLoaderSettings();
+        }
+        function applyLoaderSettings() {
+            const defaultText = t('api_loading');
+            const txt = localStorage.getItem('bc_loader_text') || defaultText;
+            const rot = localStorage.getItem('bc_loader_rotate') === 'true';
+            const spd = localStorage.getItem('bc_loader_speed') || 5;
+            document.getElementById('custom-load-text').value = localStorage.getItem('bc_loader_text') || '';
+            document.getElementById('loader-rotate').checked = rot;
+            document.getElementById('loader-speed').value = spd;
+            document.getElementById('speed-val').innerText = spd;
+            document.getElementById('loading-text').innerText = txt;
+            const imgEl = document.getElementById('loading-icon');
+            const savedImg = localStorage.getItem('bc_loader_img');
+            if (savedImg) { imgEl.src = savedImg; imgEl.style.display = 'block'; if (rot) { const dur = (11 - spd) * 0.2; imgEl.style.animation = `spin ${dur}s linear infinite`; } else { imgEl.style.animation = 'none'; } } else { imgEl.style.display = 'none'; }
+        }
+        function deleteLoaderImg() { localStorage.removeItem('bc_loader_img'); applyLoaderSettings(); showToast(t('deleted')); }
+
+        function generateUnbanEmail() {
+            const cc = document.getElementById('country-code').value;
+            const num = document.getElementById('phone-number').value;
+            let fullNumber = "+49 [DEINE NUMMER]";
+            if (cc && num) fullNumber = "+" + cc + " " + num;
+            else fullNumber = prompt("Für welche Nummer?", fullNumber) || fullNumber;
+            const template = document.getElementById('unban-template').value;
+            let subject = "", body = "";
+            if (template === "1") { subject = "Urgent: Please reactivate my account"; body = `Dear WhatsApp Support,\n\nMy account was banned by mistake.\n\nNumber: ${fullNumber}\n\nBest regards,`; }
+            else if (template === "2") { subject = "Account Compromised"; body = `Dear WhatsApp Support,\n\nMy account was compromised.\n\nNumber: ${fullNumber}\n\nSincerely,`; }
+            else if (template === "3") { subject = "Business Account Suspended"; body = `Dear WhatsApp Support,\n\nMy Business account was deactivated.\n\nNumber: ${fullNumber}\n\nBest regards,`; }
+            const targetEmail = template === "3" ? "smb_web@support.whatsapp.com" : "support@support.whatsapp.com";
+            window.location.href = `mailto:${targetEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        }
+
+        function editWelcomeText() { const neu = prompt("Welcome Text:", localStorage.getItem('bc_welcome_text') || DEFAULT_WELCOME_TEXT); if (neu && neu.trim() !== "") { localStorage.setItem('bc_welcome_text', neu.trim()); document.getElementById('welcome-display').innerText = neu.trim(); showToast("✅ Welcome-Text geändert!"); } }
+        function editBannedText() { const neu = prompt("Banned Text:", (localStorage.getItem('bc_banned_text') || DEFAULT_BANNED_TEXT).replace(/<br>/g, '\n')); if (neu && neu.trim() !== "") { localStorage.setItem('bc_banned_text', neu.trim()); showToast("✅ Banned-Text geändert!"); } }
+        function editUnbanText() { const current = localStorage.getItem('bc_unban_text') || t('is_unban'); const neu = prompt("Unban-Text:", current.replace(/<br>/g, '\n')); if (neu && neu.trim() !== "") { localStorage.setItem('bc_unban_text', neu.trim()); showToast("✅ Unban-Text geändert!"); } }
+
+        async function checkApiStatus() { const el=document.getElementById('api-status'); try{const r=await fetch('/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({number:'+49 0'})});el.classList.toggle('offline',!r.ok);}catch(e){el.classList.add('offline');} }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            switchDesign(currentDesign);
+            const sn=localStorage.getItem('bc_neon_color'); if(sn){changeThemeColor(sn);document.getElementById('neon-color-picker').value=sn;}
+            const st=localStorage.getItem('bc_text_color'); if(st){changeTextColor(st);document.getElementById('text-color-picker').value=st;}
+            const su=localStorage.getItem('bc_unban_color'); if(su){changeUnbanColor(su);document.getElementById('unban-color-picker').value=su;}
+            document.getElementById('blur-slider').value = localStorage.getItem('bc_panel_blur') || 15;
+            document.getElementById('alpha-slider').value = localStorage.getItem('bc_panel_alpha') || 75;
+            updatePanelStyle();
+            document.getElementById('lang-select').value = currentLang;
+            const sb=localStorage.getItem('bc_bg_image'); if(sb){const bg=document.getElementById('bg-img');bg.src=sb;bg.style.display='block';}
+            updateAllTexts();
+            refreshLayoutList(); updateReportBadge(); checkApiStatus(); setInterval(checkApiStatus,30000);
+            document.getElementById('sound-icon').innerText=soundEnabled?'🔊':'🔇';
+            document.getElementById('sound-status').innerText=soundEnabled?t('on'):t('off');
+        });
+    </script>
+<script>
+/* ===== v3 Zusatz: überschreibt/ergänzt Funktionen der Seite ===== */
+const $$ = id => document.getElementById(id);
+let GLASS = localStorage.getItem('bc_glass') || '15,15,15';
+const THEMES = [
+  ['rot','Rot','#ff1a1a','#050505','15,15,15'],['violett','Violett','#a855f7','#07040d','20,12,32'],
+  ['ozean','Ozean','#22d3ee','#030b10','8,20,28'],['wald','Wald','#4ade80','#040a06','10,24,14'],
+  ['rose','Rosé','#ff5fb0','#0d0309','32,10,24'],['gold','Gold','#ffd700','#0a0800','24,20,6'],
+  ['stahl','Stahl','#e5e7eb','#08090b','20,22,26'],['blau','Blau','#3b82f6','#03060d','10,16,34']
+];
+function buildThemes() {
+  $$('theme-grid').innerHTML = THEMES.map(h => `<button class="theme-btn" data-th="${h[0]}" style="background:linear-gradient(135deg,${h[2]},${h[3]} 85%)" onclick="applyTheme('${h[0]}')">${h[1]}</button>`).join('');
+  markTheme();
+}
+function markTheme() { const c = localStorage.getItem('bc_theme'); document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('sel', b.dataset.th === c)); }
+function applyTheme(id) {
+  const T = THEMES.find(x => x[0] === id); if (!T) return;
+  localStorage.setItem('bc_theme', id); localStorage.setItem('bc_bg_color', T[3]); localStorage.setItem('bc_glass', T[4]);
+  document.documentElement.style.setProperty('--bg-color', T[3]); GLASS = T[4];
+  changeThemeColor(T[2]); $$('neon-color-picker').value = T[2]; updatePanelStyle(); markTheme(); showToast('🎨 ' + T[1]);
+}
+function updatePanelStyle() {
+  const r = document.documentElement.style, b = $$('blur-slider').value, a = $$('alpha-slider').value;
+  r.setProperty('--panel-blur', b + 'px'); r.setProperty('--panel-bg', `rgba(${GLASS},${a / 100})`);
+  $$('blur-val').innerText = b + 'px'; $$('alpha-val').innerText = a + '%';
+  localStorage.setItem('bc_panel_blur', b); localStorage.setItem('bc_panel_alpha', a);
+  const rb = $$('res-blur-slider').value, ra = $$('res-alpha-slider').value;
+  r.setProperty('--res-blur', rb + 'px'); r.setProperty('--res-bg', `rgba(${GLASS},${ra / 100})`);
+  $$('res-blur-val').innerText = rb + 'px'; $$('res-alpha-val').innerText = ra + '%';
+  localStorage.setItem('bc_res_blur', rb); localStorage.setItem('bc_res_alpha', ra);
+}
+function resetPanelStyle() {
+  $$('blur-slider').value = 15; $$('alpha-slider').value = 75; $$('res-blur-slider').value = 20; $$('res-alpha-slider').value = 70;
+  updatePanelStyle(); showToast('🔄 Reset!');
+}
+
+/* 3D-Neigung – symmetrisch: die Seite, zu der der Finger/die Maus zeigt, geht nach hinten */
+const tiltOn = () => localStorage.getItem('bc_tilt') !== 'false';
+const tiltMax = () => +(localStorage.getItem('bc_tilt_max') || 10);
+let TILT = [];
+function setupTilt() {
+  TILT = [['#android-result', 1], ['.ios-result-modal', 1], ['.owner-result-card', 1], ['.top-panel', .45], ['.input-panel', .45]]
+    .map(([s, f]) => [document.querySelector(s), f]).filter(x => x[0]);
+  TILT.forEach(([el]) => el.classList.add('tilt-card'));
+}
+function tiltMove(e) {
+  if (!tiltOn()) return;
+  const m = tiltMax();
+  TILT.forEach(([el, f]) => {
+    if (!el.getClientRects().length) return;
+    const r = el.getBoundingClientRect();
+    const nx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (innerWidth / 2)));
+    const ny = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (innerHeight / 2)));
+    el.classList.remove('rest');
+    el.style.transform = `perspective(900px) rotateX(${(-ny * m * f).toFixed(2)}deg) rotateY(${(nx * m * f).toFixed(2)}deg)`;
+    el.style.setProperty('--gx', ((nx + 1) * 50) + '%'); el.style.setProperty('--gy', ((ny + 1) * 50) + '%');
+  });
+}
+function tiltRest() { TILT.forEach(([el]) => { el.classList.add('rest'); el.style.transform = ''; }); }
+function saveTilt() {
+  localStorage.setItem('bc_tilt', $$('tilt-toggle').checked); localStorage.setItem('bc_tilt_max', $$('tilt-max').value);
+  $$('tilt-val').innerText = $$('tilt-max').value + '°'; if (!tiltOn()) tiltRest();
+}
+
+/* Einstellungen als aufklappbare Bereiche */
+function buildAccordion() {
+  document.querySelectorAll('.settings-panel .layout-manager-section').forEach((sec, i) => {
+    const title = sec.querySelector('.layout-manager-title'), d = document.createElement('details'), sm = document.createElement('summary');
+    d.className = 'layout-manager-section acc'; if (i === 0) d.open = true;
+    sm.innerHTML = '<div>' + title.innerHTML + '</div>'; title.remove(); d.appendChild(sm);
+    while (sec.firstChild) d.appendChild(sec.firstChild);
+    sec.replaceWith(d);
+  });
+}
+
+/* Layouts: Snapshot inkl. Themen, Ergebnis-Glas, 3D – Export/Import über den Server */
+function snap() {
+  const g = k => localStorage.getItem(k);
+  return { neon: g('bc_neon_color') || '#ff1a1a', text: g('bc_text_color') || '#ffffff', unbanColor: g('bc_unban_color') || '#32d74b',
+    bgColor: g('bc_bg_color') || '', glass: GLASS, theme: g('bc_theme') || '', blur: +$$('blur-slider').value, alpha: +$$('alpha-slider').value,
+    rblur: +$$('res-blur-slider').value, ralpha: +$$('res-alpha-slider').value, tilt: tiltOn(), tiltMax: tiltMax(), design: currentDesign, bgData: g('bc_bg_image') || '' };
+}
+function applySnap(l) {
+  const r = document.documentElement.style;
+  if (l.bgColor) { r.setProperty('--bg-color', l.bgColor); localStorage.setItem('bc_bg_color', l.bgColor); }
+  if (l.glass) { GLASS = l.glass; localStorage.setItem('bc_glass', l.glass); }
+  if (l.theme) localStorage.setItem('bc_theme', l.theme);
+  if (l.neon) { changeThemeColor(l.neon); $$('neon-color-picker').value = l.neon; }
+  if (l.text) { changeTextColor(l.text); $$('text-color-picker').value = l.text; }
+  if (l.unbanColor) { changeUnbanColor(l.unbanColor); $$('unban-color-picker').value = l.unbanColor; }
+  if (l.blur !== undefined) $$('blur-slider').value = l.blur; if (l.alpha !== undefined) $$('alpha-slider').value = l.alpha;
+  if (l.rblur !== undefined) $$('res-blur-slider').value = l.rblur; if (l.ralpha !== undefined) $$('res-alpha-slider').value = l.ralpha;
+  if (l.tilt !== undefined) { $$('tilt-toggle').checked = l.tilt; } if (l.tiltMax) $$('tilt-max').value = l.tiltMax; saveTilt();
+  updatePanelStyle(); markTheme();
+  if (l.design && (l.design !== 'owner' || isOwnerLoggedIn)) switchDesign(l.design);
+  if (l.bgData) { try { localStorage.setItem('bc_bg_image', l.bgData); const bg = $$('bg-img'); bg.src = l.bgData; bg.style.display = 'block'; } catch (e) {} }
+  showToast(t('loaded'));
+}
+function saveCurrentLayout() {
+  const n = $$('layout-name-input').value.trim(); if (!n) { showToast(t('name_required')); return; }
+  const l = getLayouts(); if (l[n] && !confirm(t('overwrite'))) return;
+  l[n] = snap(); saveLayouts(l); $$('layout-name-input').value = ''; refreshLayoutList(); showToast(t('saved'));
+}
+function loadLayout(n) { const l = getLayouts()[n]; if (l) applySnap(l); }
+async function exportLayout() {
+  let code = null;
+  try { const r = await fetch('/api/layout/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ layoutData: snap() }) }); const j = await r.json(); if (j.success) code = j.code; } catch (e) {}
+  if (!code) { code = 'TOMMY-' + Math.random().toString(36).substring(2, 6).toUpperCase(); let s = {}; try { s = JSON.parse(localStorage.getItem('bc_shared_layouts') || '{}'); } catch (e) {} s[code] = snap(); localStorage.setItem('bc_shared_layouts', JSON.stringify(s)); }
+  navigator.clipboard.writeText(code).then(() => showToast('📋 ' + code, 4000)).catch(() => prompt('Layout-Code:', code));
+}
+async function importLayout() {
+  const inp = $$('layout-import-code'), code = inp.value.trim().toUpperCase(); if (!code) { showToast('⚠️ Code eingeben!'); return; }
+  let data = null;
+  try { const r = await fetch('/api/layout/import/' + encodeURIComponent(code)); const j = await r.json(); if (j.success) data = j.layoutData; } catch (e) {}
+  if (!data) { try { data = JSON.parse(localStorage.getItem('bc_shared_layouts') || '{}')[code]; } catch (e) {} }
+  if (!data) { showToast('❌ Code nicht gefunden!'); return; }
+  applySnap(data.data || data); inp.value = '';
+}
+function generateLayoutCode() { return 'TOMMY-' + Math.random().toString(36).substring(2, 6).toUpperCase(); }
+
+/* Chat sicher darstellen (kein HTML aus Nachrichten) */
+function appendMsg(m) {
+  const c = $$('chat-messages'), d = document.createElement('div'), n = document.createElement('div'), tx = document.createElement('div');
+  d.className = 'chat-msg' + (m.isAdmin ? ' chat-msg-admin' : ''); n.className = 'chat-name' + (m.isAdmin ? ' chat-name-admin' : '');
+  const a = document.createElement('span'), b = document.createElement('span'); b.className = 'chat-time'; a.textContent = m.name; b.textContent = m.time;
+  n.append(a, b); tx.textContent = m.text; d.append(n, tx); c.appendChild(d);
+}
+
+/* gespeicherte Ergebnis-Werte sofort laden (bevor die Seite updatePanelStyle() aufruft) */
+$$('res-blur-slider').value = localStorage.getItem('bc_res_blur') || 20; $$('res-alpha-slider').value = localStorage.getItem('bc_res_alpha') || 70;
+document.addEventListener('DOMContentLoaded', () => {
+  buildAccordion(); buildThemes(); setupTilt();
+  const g = k => localStorage.getItem(k), bgc = g('bc_bg_color');
+  if (bgc) document.documentElement.style.setProperty('--bg-color', bgc);
+  $$('tilt-toggle').checked = tiltOn(); $$('tilt-max').value = tiltMax(); $$('tilt-val').innerText = tiltMax() + '°';
+  updatePanelStyle();
+  document.addEventListener('pointermove', tiltMove); document.addEventListener('pointerdown', tiltMove);
+  ['pointerup', 'pointercancel'].forEach(n => document.addEventListener(n, e => { if (e.pointerType !== 'mouse') tiltRest(); }));
+  document.documentElement.addEventListener('mouseleave', tiltRest);
+});
+</script>
+</body>
+</html>
